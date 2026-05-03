@@ -1,0 +1,101 @@
+Project: "Tilt2PC – Asphalt 9 Tilt Controller"
+Goal: Build an Android app + Windows companion to let an Android phone act as a low-latency tilt controller and button/gamepad for Asphalt 9 running on Windows. The system should map phone gyroscope tilt and on-screen buttons to keyboard/gamepad events on Windows so a player can steer with tilt and use drift, nitro, brake, and other Asphalt 9 controls. The app must be configurable, low-latency, robust, secure on LAN, and respect fair-use / game ToS (no automated gameplay).
+
+Deliverables:
+1) Android app (Kotlin, min SDK 26+) with:
+   - Main screens: Pairing (Scan LAN / enter IP), Calibration, Mapping/Profile editor, Live-control screen (tilt + buttons), Settings (sensitivity, smoothing, sampling rate).
+   - Gyroscope steering: sample rate configurable (recommended default 60 Hz). Convert device roll/yaw into normalized steering value [-1..1].
+   - Tilt calibration: allow user to set neutral orientation (press "Calibrate" when phone is held centered).
+   - Smoothing & filtering: implement a configurable **exponential low-pass filter** with alpha and a short predictive component to reduce perceived latency. Provide pseudocode.
+   - Buttons: Drift, Nitro, Brake, Camera/Menu, Shockwave (double-tap nitro detection), Optional: Two extra buttons for user mapping. Buttons should support single tap, double tap, long press and repeat.
+   - Perfect-Nitro *assist* mode: detect nitro zone timing locally if possible (only provide visual/haptic cue — do NOT auto-fire). (Note: exact nitro-bar visibility is in-game; the app cannot read it — so perfect-nitro assist should be an optional *timing-based helper* triggered by player through manual timing mode only.)
+   - Profile system: save/load multiple button/key mappings and sensitivity presets.
+   - Connection options (ordered by recommendation): 
+       A) **LAN WebSocket**: Android connects to a small Windows server via WebSocket over local network (preferred—easy and reliable).
+       B) **Bluetooth**: optional, use Bluetooth SPP (serial) for lower latency where available.
+       C) **ADB forward (dev)**: for debugging only.
+   - Security: connection pairing code and optional password. Use TLS over LAN if possible; otherwise authenticate session with short-lived token.
+   - Diagnostics overlay: show current steering value, sampling rate, ping/latency, and last button events.
+
+2) Windows companion app (C#/.NET 7 or Node.js with native input libs) with:
+   - Runs as a system-tray app; listens for WebSocket connections on a configurable port (default 3333).
+   - Auth handshake: short numeric PIN to pair.
+   - Receives control messages (JSON; spec below) and injects native keyboard/gamepad events using **SendInput** (Windows API) or vJoy / ViGEm to create a virtual gamepad. Provide both methods:
+       * Option 1: Inject keyboard events with SendInput.
+       * Option 2: Expose virtual XInput gamepad via ViGEm (recommended for games that support controllers).
+   - Mapping UI: map incoming logical controls (steer, drift, nitro, shockwave, brake, camera) to either keyboard keys, single-gamepad buttons, or XInput axes. Save mappings to disk.
+   - Low-latency processing with a small jitter buffer (e.g., 4–8 ms) and timestamp check to drop late packets.
+   - Optional: run with admin privileges when required to inject input.
+
+3) Communication protocol (JSON over WebSocket)
+   - Messages from Android -> Windows:
+     * `{"type":"heartbeat","ts":<ms_since_epoch>}`
+     * `{"type":"steer","ts":123456789,"value":0.42}`  // value in [-1.0 .. 1.0]
+     * `{"type":"button","ts":123456789,"id":"NITRO","action":"down"}` // actions: down/up/click/double/long
+     * `{"type":"config","client":"tilt2pc-android","ver":"1.0"}`
+   - Windows replies: ack / ping-pong messages containing server ts to compute ping.
+
+4) Steering algorithm & smoothing (pseudocode)
+   - Read raw rotation (phone roll or yaw depending on user choice).
+   - Convert to steering: `steer = clamp((raw - neutral)/sensitivity, -1, 1)`
+   - Apply exponential smoothing: `smoothed = alpha * new + (1-alpha) * prev` (alpha ~ 0.35 default, configurable).
+   - Optional predictive smoothing: estimate derivative and add small fraction to compensate for latency: `predicted = smoothed + beta * (smoothed - prevSmoothed)` where beta ~ 0.08.
+   - Send only when `|smoothed - last_sent| > epsilon` (epsilon e.g., 0.005) or every 50ms to limit traffic.
+
+5) Button behavior specifics
+   - **Nitro**: send `button` down on press and `up` on release. Detect double-tap on Android and send `button` action `"double"`. Windows should map `double` to a fast sequence or a dedicated key (e.g., two `Space` events) or to the Shockwave virtual-button.
+   - **Perfect Nitro**: only provide a timing cue — do not auto-inject a second tap. (This is a design/ToS safety constraint.)
+   - **Drift**: tap or hold mapping; user choice to send continuous `down` events while held.
+   - **Brake**: send `down` while pressed (maps to keyboard brake key).
+   - **Camera/Menu**: single press.
+
+6) Latency targets & measurements
+   - Target end-to-end input latency ≤ 50 ms on a typical home Wi-Fi (lower is better). Provide ping display and logging.
+   - Use small binary-packed JSON and compact messages. Use WebSocket per message (no heavy framing).
+   - Implement heartbeat and client-side resend on missed ack.
+
+7) UX & calibration screens
+   - Calibration: “Hold phone in neutral position → Calibrate” stores `neutral` quaternion.
+   - Sensitivity slider (0.1..5.0) with sample preview.
+   - Deadzone slider and invert steering toggle.
+   - Button layout editor: allow repositioning and resizing on Android live-control screen.
+   - Provide test mode: run a local “simulator” that shows how Windows would receive events (for dev/test without Windows app).
+
+8) Edge cases & robustness
+   - Reconnect logic on Wi-Fi change.
+   - Graceful fallback to keyboard mode if ViGEm / SendInput unavailable.
+   - Handle multiple Android clients: either deny or present as separate profiles.
+   - Logging and debug mode (save last N seconds of events).
+
+9) Security & ToS considerations (must be shown in app)
+   - Clear disclaimer: app only maps raw inputs; it does not automate gameplay or read/modify game memory. Using automated macros or auto-perfect nitro could violate Gameloft ToS — the app should not perform automated game-play actions in multiplayer (include a clear warning during install). (This is a developer note; do not implement automation features that play the game for the user.)
+
+10) Tests & acceptance criteria
+   - Unit tests for message encoding/decoding.
+   - Integration test: Android ↔ Windows over loopback and over LAN (measure ping).
+   - UI test: calibration accuracy — neutral readout should be within ±0.02 steering units after calibration.
+   - Real-world test: run game on Windows, verify:
+       * Tilt steering produces continuous left/right with no jitter.
+       * Nitro single/double tap maps correctly to in-game nitro and Shockwave.
+       * Drift button triggers handbrake reliably.
+       * Latency measured (roundtrip) ≤ 50 ms in typical home LAN.
+   - Provide a short demo script for QA.
+
+11) Tech stack recommendations
+   - Android: Kotlin, Jetpack Compose UI, WebSocket (okhttp), Kotlin Coroutines.
+   - Windows Server: C# .NET 7 (WPF for GUI) or Node.js + native addon (node-hid or robotjs / node-sendinput). Recommend C# for robust SendInput and ViGEm support.
+   - Virtual gamepad: ViGEm (XInput emulation) is recommended for best compatibility with games.
+   - Transport: WebSocket over TCP (TLS optional on LAN) — simple and firewall friendly.
+   - Build & packaging: Android: standard Play-signing for distribution; Windows: installer with optional driver for ViGEm (signed drivers when possible).
+
+12) Deliver code layout & documentation
+   - Provide README with architecture diagram, build steps, and pairing instructions.
+   - Provide example mapping JSON and example Wi-Fi troubleshooting steps.
+   - Provide a short troubleshooting FAQ about latency, permissions, and admin rights.
+
+13) Output requirements for the AI code generator
+   - Produce both Android project files and Windows project files, each with build scripts.
+   - Produce unit tests and integration test harnesses (simulator).
+   - Provide sample configuration files and a short user manual.
+
+End of spec.
