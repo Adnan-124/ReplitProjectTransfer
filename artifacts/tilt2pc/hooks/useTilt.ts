@@ -1,9 +1,34 @@
+/**
+ * useTilt — Accelerometer-based steering for Tilt2PC
+ *
+ * AXIS MAPPING (why we switch axes in landscape):
+ * ─────────────────────────────────────────────────────────────────
+ * The accelerometer axes are FIXED to the phone hardware — they do
+ * NOT rotate when the screen orientation changes.
+ *
+ * Portrait mode:
+ *   +x = points RIGHT along short edge  → left/right tilt = x ✓
+ *   +y = points UP along long edge      → up/down tilt = y (ignored)
+ *
+ * Landscape mode (phone rotated 90°):
+ *   +x = now points DOWN (was right)    → x measures PITCH (up/down tilt) ✗
+ *   +y = now points LEFT or RIGHT       → y measures ROLL  (left/right tilt) ✓
+ *
+ * Reading x in landscape is WHY "tilting up = turning left" happens.
+ * Solution: switch to reading y in landscape mode.
+ *
+ * Sign of y depends on rotation direction:
+ *   LANDSCAPE_LEFT  (home on right, rotated CW):  +y points LEFT  → use -y
+ *   LANDSCAPE_RIGHT (home on left,  rotated CCW): +y points RIGHT → use +y
+ */
+
+import * as ScreenOrientation from 'expo-screen-orientation';
 import { useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
 import { useApp } from '@/context/AppContext';
 
 export function useTilt(active: boolean) {
-  const { settings, neutralX, sendMessage, setSteerValue, setActualHz } = useApp();
+  const { settings, neutralX: neutralTilt, sendMessage, setSteerValue, setActualHz } = useApp();
 
   const prevSmoothed = useRef(0);
   const prevPrevSmoothed = useRef(0);
@@ -12,12 +37,33 @@ export function useTilt(active: boolean) {
   const hzCountRef = useRef(0);
   const hzTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Track screen orientation so we pick the correct axis
+  const orientationRef = useRef<ScreenOrientation.Orientation>(
+    ScreenOrientation.Orientation.PORTRAIT_UP,
+  );
+
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+
+    ScreenOrientation.getOrientationAsync()
+      .then((o) => { orientationRef.current = o; })
+      .catch(() => {});
+
+    const sub = ScreenOrientation.addOrientationChangeListener(({ orientationInfo }) => {
+      orientationRef.current = orientationInfo.orientation;
+    });
+
+    return () => ScreenOrientation.removeOrientationChangeListener(sub);
+  }, []);
+
   useEffect(() => {
     if (!active || Platform.OS === 'web') return;
 
     let Accelerometer: {
       setUpdateInterval: (ms: number) => void;
-      addListener: (cb: (data: { x: number; y: number; z: number }) => void) => { remove: () => void };
+      addListener: (
+        cb: (data: { x: number; y: number; z: number }) => void,
+      ) => { remove: () => void };
     };
     try {
       Accelerometer = require('expo-sensors').Accelerometer;
@@ -28,79 +74,99 @@ export function useTilt(active: boolean) {
     const { sensitivity, alpha, beta, deadzone, invertSteering, sampleRate } = settings;
 
     // sensitivity: 0-100 UI scale where 100 = most sensitive
-    // Map to physical divisor: how many g-force units of tilt = full steer (±1)
-    // At 100 (most sensitive): ~12° tilt = full steer (divisor ≈ 0.20)
-    // At 70 (default):         ~36° tilt = full steer (divisor ≈ 0.59)
-    // At 50:                   ~48° tilt = full steer (divisor ≈ 0.85)
-    // At 0 (least sensitive):  ~87° tilt = full steer (divisor ≈ 1.50)
-    const sensitivityDivisor = Math.max(0.1, 1.5 - (1.3 * sensitivity / 100));
+    // Divisor = how many g of tilt produce full steer (±1)
+    //   100 → 0.20 (~12° tilt = full steer)
+    //    70 → 0.59 (~36° tilt = full steer, default)
+    //    50 → 0.85 (~58° tilt = full steer)
+    //     0 → 1.50 (~90° tilt = full steer)
+    const sensitivityDivisor = Math.max(0.1, 1.5 - (1.3 * sensitivity) / 100);
 
     Accelerometer.setUpdateInterval(Math.round(1000 / sampleRate));
 
-    // Hz counter
     hzTimerRef.current = setInterval(() => {
       setActualHz(hzCountRef.current);
       hzCountRef.current = 0;
     }, 1000);
 
-    const subscription = Accelerometer.addListener(({ x }: { x: number; y: number; z: number }) => {
-      hzCountRef.current += 1;
+    const subscription = Accelerometer.addListener(
+      ({ x, y }: { x: number; y: number; z: number }) => {
+        hzCountRef.current += 1;
 
-      const raw = invertSteering ? -x : x;
+        // ── AXIS SELECTION ─────────────────────────────────────────
+        const o = orientationRef.current;
+        const Ori = ScreenOrientation.Orientation;
 
-      // 1. Normalize: map physical tilt to [-1, 1] using calibrated neutral + divisor
-      const normalized = (raw - neutralX) / sensitivityDivisor;
-      const clamped = Math.max(-1, Math.min(1, normalized));
+        let steerAxis: number;
+        if (o === Ori.LANDSCAPE_LEFT) {
+          // Rotated CW: +y points LEFT → negate so right tilt = positive
+          steerAxis = -y;
+        } else if (o === Ori.LANDSCAPE_RIGHT) {
+          // Rotated CCW: +y points RIGHT → use directly
+          steerAxis = y;
+        } else {
+          // Portrait (up or down): +x is always left/right tilt
+          steerAxis = o === Ori.PORTRAIT_DOWN ? -x : x;
+        }
 
-      // 2. Deadzone: remove noise around center
-      const dz = deadzone / 100; // deadzone is also 0-100, convert to 0-1
-      const withDeadzone =
-        Math.abs(clamped) < dz
-          ? 0
-          : clamped > 0
-            ? (clamped - dz) / (1 - dz)
-            : (clamped + dz) / (1 - dz);
+        // ── STEERING PIPELINE ──────────────────────────────────────
+        const raw = invertSteering ? -steerAxis : steerAxis;
 
-      // 3. Exponential low-pass filter (reduces jitter, smooths input)
-      //    alpha: 0.1 (very smooth/laggy) → 1.0 (raw/instant)
-      const smoothed = alpha * withDeadzone + (1 - alpha) * prevSmoothed.current;
+        // 1. Remove calibrated neutral offset, scale to [-1, 1]
+        const normalized = (raw - neutralTilt) / sensitivityDivisor;
+        const clamped = Math.max(-1, Math.min(1, normalized));
 
-      // 4. Predictive component: compensates for filter lag
-      //    predicted = smoothed + beta * velocity estimate
-      const predicted = smoothed + beta * (smoothed - prevPrevSmoothed.current);
-      const finalValue = Math.max(-1, Math.min(1, predicted));
+        // 2. Deadzone: ignore small centre wobble
+        const dz = deadzone / 100;
+        const withDeadzone =
+          Math.abs(clamped) < dz
+            ? 0
+            : clamped > 0
+              ? (clamped - dz) / (1 - dz)
+              : (clamped + dz) / (1 - dz);
 
-      prevPrevSmoothed.current = prevSmoothed.current;
-      prevSmoothed.current = smoothed;
+        // 3. Exponential low-pass filter
+        //    alpha near 1.0 = raw/instant, near 0.0 = very smooth but laggy
+        const smoothed = alpha * withDeadzone + (1 - alpha) * prevSmoothed.current;
 
-      setSteerValue(finalValue);
+        // 4. Predictive delta: compensates for filter-induced lag
+        const predicted = smoothed + beta * (smoothed - prevPrevSmoothed.current);
+        const finalValue = Math.max(-1, Math.min(1, predicted));
 
-      // 5. Send only if changed enough OR timeout (keeps Windows server updated)
-      const now = Date.now();
-      const changed = Math.abs(finalValue - lastSent.current) > 0.004;
-      const timedOut = now - lastSentTime.current > 40;
+        prevPrevSmoothed.current = prevSmoothed.current;
+        prevSmoothed.current = smoothed;
 
-      if (changed || timedOut) {
-        sendMessage({ type: 'steer', ts: now, value: parseFloat(finalValue.toFixed(4)) });
-        lastSent.current = finalValue;
-        lastSentTime.current = now;
-      }
-    });
+        setSteerValue(finalValue);
+
+        // 5. Send only when value changed enough OR periodic timeout
+        const now = Date.now();
+        const changed = Math.abs(finalValue - lastSent.current) > 0.004;
+        const timedOut = now - lastSentTime.current > 40;
+
+        if (changed || timedOut) {
+          sendMessage({
+            type: 'steer',
+            ts: now,
+            value: parseFloat(finalValue.toFixed(4)),
+          });
+          lastSent.current = finalValue;
+          lastSentTime.current = now;
+        }
+      },
+    );
 
     return () => {
       subscription.remove();
       if (hzTimerRef.current) clearInterval(hzTimerRef.current);
     };
-  }, [active, settings, neutralX, sendMessage, setSteerValue, setActualHz]);
+  }, [active, settings, neutralTilt, sendMessage, setSteerValue, setActualHz]);
 
-  // Web: simulate tilt with a sine wave for previewing the UI
+  // Web: sine-wave simulation so the UI is previewable in browser
   useEffect(() => {
     if (!active || Platform.OS !== 'web') return;
     let t = 0;
     const interval = setInterval(() => {
       t += 0.035;
-      const sim = Math.sin(t) * 0.55;
-      setSteerValue(sim);
+      setSteerValue(Math.sin(t) * 0.55);
       setActualHz(60);
     }, 16);
     return () => clearInterval(interval);
