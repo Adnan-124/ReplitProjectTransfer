@@ -3,7 +3,7 @@
     "name": "Tilt2PC Controller",
     "slug": "tilt2pc",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "tilt2pc",
     "userInterfaceStyle": "dark",

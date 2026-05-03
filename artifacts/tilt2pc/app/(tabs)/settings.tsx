@@ -20,7 +20,15 @@ const SAMPLE_RATES = [30, 60, 90, 120];
 export default function SettingsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { settings, updateSettings, profiles, activeProfileId, saveCurrentProfile, loadProfile, deleteProfile } = useApp();
+  const {
+    settings,
+    updateSettings,
+    profiles,
+    activeProfileId,
+    saveCurrentProfile,
+    loadProfile,
+    deleteProfile,
+  } = useApp();
   const [profileName, setProfileName] = useState('');
   const [showSaveInput, setShowSaveInput] = useState(false);
 
@@ -51,10 +59,32 @@ export default function SettingsScreen() {
       ]}
       showsVerticalScrollIndicator={false}
     >
-      {/* Steering Section */}
+      {/* Steering */}
       <Section title="STEERING" colors={colors}>
-        <Stepper label="Sensitivity" value={settings.sensitivity} min={0.1} max={5.0} step={0.1} decimals={1} colors={colors} onChange={(v) => updateSettings({ sensitivity: v })} />
-        <Stepper label="Deadzone" value={settings.deadzone} min={0} max={0.5} step={0.01} decimals={2} colors={colors} onChange={(v) => updateSettings({ deadzone: v })} />
+        <Stepper
+          label="Sensitivity"
+          description="0 = hard to steer · 100 = very responsive (like Asphalt 9)"
+          value={settings.sensitivity}
+          min={0}
+          max={100}
+          step={1}
+          decimals={0}
+          unit=""
+          colors={colors}
+          onChange={(v) => updateSettings({ sensitivity: v })}
+        />
+        <Stepper
+          label="Deadzone"
+          description="Ignore small tilts near center (0–30%)"
+          value={settings.deadzone}
+          min={0}
+          max={30}
+          step={1}
+          decimals={0}
+          unit="%"
+          colors={colors}
+          onChange={(v) => updateSettings({ deadzone: v })}
+        />
         <ToggleRow
           label="Invert Steering"
           description="Swap left/right tilt direction"
@@ -64,36 +94,41 @@ export default function SettingsScreen() {
         />
       </Section>
 
-      {/* Smoothing Section */}
-      <Section title="SMOOTHING" colors={colors}>
+      {/* Smoothing */}
+      <Section title="SMOOTHING & LATENCY" colors={colors}>
         <Stepper
-          label="Alpha (smoothing)"
-          description="Lower = smoother, higher = more responsive"
+          label="Alpha"
+          description="Filter strength: 0.05 = max smooth (laggy) · 1.0 = raw (instant)"
           value={settings.alpha}
           min={0.05}
           max={1.0}
           step={0.05}
           decimals={2}
+          unit=""
           colors={colors}
           onChange={(v) => updateSettings({ alpha: v })}
         />
         <Stepper
           label="Beta (predictive)"
-          description="Compensates for latency. Set 0 to disable"
+          description="Compensates filter lag. 0 = off · 0.30 = max"
           value={settings.beta}
           min={0}
           max={0.3}
           step={0.01}
           decimals={2}
+          unit=""
           colors={colors}
           onChange={(v) => updateSettings({ beta: v })}
         />
       </Section>
 
-      {/* Performance Section */}
+      {/* Performance */}
       <Section title="PERFORMANCE" colors={colors}>
-        <View style={styles.rateRow}>
+        <View style={styles.rateBlock}>
           <Text style={[styles.fieldLabel, { color: colors.foreground }]}>Sample Rate</Text>
+          <Text style={[styles.fieldDesc, { color: colors.mutedForeground }]}>
+            Higher = smoother steering, uses more battery
+          </Text>
           <View style={styles.ratePills}>
             {SAMPLE_RATES.map((rate) => (
               <TouchableOpacity
@@ -101,8 +136,10 @@ export default function SettingsScreen() {
                 style={[
                   styles.ratePill,
                   {
-                    backgroundColor: settings.sampleRate === rate ? colors.primary : colors.secondary,
-                    borderColor: settings.sampleRate === rate ? colors.primary : colors.border,
+                    backgroundColor:
+                      settings.sampleRate === rate ? colors.primary : colors.secondary,
+                    borderColor:
+                      settings.sampleRate === rate ? colors.primary : colors.border,
                   },
                 ]}
                 onPress={() => updateSettings({ sampleRate: rate })}
@@ -111,7 +148,10 @@ export default function SettingsScreen() {
                   style={[
                     styles.ratePillText,
                     {
-                      color: settings.sampleRate === rate ? colors.primaryForeground : colors.mutedForeground,
+                      color:
+                        settings.sampleRate === rate
+                          ? colors.primaryForeground
+                          : colors.mutedForeground,
                     },
                   ]}
                 >
@@ -123,10 +163,12 @@ export default function SettingsScreen() {
         </View>
       </Section>
 
-      {/* Profiles Section */}
+      {/* Profiles */}
       <Section title="PROFILES" colors={colors}>
         {profiles.length === 0 && (
-          <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>No saved profiles yet.</Text>
+          <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
+            No saved profiles yet.
+          </Text>
         )}
         {profiles.map((profile) => (
           <View
@@ -134,8 +176,10 @@ export default function SettingsScreen() {
             style={[
               styles.profileRow,
               {
-                backgroundColor: profile.id === activeProfileId ? colors.primary + '18' : colors.secondary,
-                borderColor: profile.id === activeProfileId ? colors.primary + '66' : colors.border,
+                backgroundColor:
+                  profile.id === activeProfileId ? colors.primary + '18' : colors.secondary,
+                borderColor:
+                  profile.id === activeProfileId ? colors.primary + '66' : colors.border,
               },
             ]}
           >
@@ -143,9 +187,11 @@ export default function SettingsScreen() {
               {profile.id === activeProfileId && (
                 <View style={[styles.activeDot, { backgroundColor: colors.primary }]} />
               )}
-              <Text style={[styles.profileName, { color: colors.foreground }]}>{profile.name}</Text>
+              <Text style={[styles.profileName, { color: colors.foreground }]}>
+                {profile.name}
+              </Text>
               <Text style={[styles.profileMeta, { color: colors.mutedForeground }]}>
-                α={profile.settings.alpha} β={profile.settings.beta} sens={profile.settings.sensitivity}
+                sens={profile.settings.sensitivity} · α={profile.settings.alpha} · {profile.settings.sampleRate}Hz
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -162,7 +208,11 @@ export default function SettingsScreen() {
             <TextInput
               style={[
                 styles.saveInput,
-                { backgroundColor: colors.secondary, color: colors.foreground, borderColor: colors.border },
+                {
+                  backgroundColor: colors.secondary,
+                  color: colors.foreground,
+                  borderColor: colors.border,
+                },
               ]}
               value={profileName}
               onChangeText={setProfileName}
@@ -180,7 +230,10 @@ export default function SettingsScreen() {
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.cancelBtn, { backgroundColor: colors.secondary, borderColor: colors.border }]}
-              onPress={() => { setShowSaveInput(false); setProfileName(''); }}
+              onPress={() => {
+                setShowSaveInput(false);
+                setProfileName('');
+              }}
             >
               <Feather name="x" size={16} color={colors.mutedForeground} />
             </TouchableOpacity>
@@ -191,7 +244,9 @@ export default function SettingsScreen() {
             onPress={() => setShowSaveInput(true)}
           >
             <Feather name="plus" size={16} color={colors.primary} />
-            <Text style={[styles.addProfileText, { color: colors.primary }]}>Save Current Settings as Profile</Text>
+            <Text style={[styles.addProfileText, { color: colors.primary }]}>
+              Save Current Settings as Profile
+            </Text>
           </TouchableOpacity>
         )}
       </Section>
@@ -201,8 +256,8 @@ export default function SettingsScreen() {
         <Text style={[styles.aboutTitle, { color: colors.mutedForeground }]}>ABOUT</Text>
         <Text style={[styles.aboutText, { color: colors.mutedForeground }]}>
           Tilt2PC v1.0 — Raw input mapping for Asphalt 9 on Windows.{'\n'}
-          Connects via WebSocket over local Wi-Fi. No game memory is read or modified.{'\n\n'}
-          Protocol: JSON over WebSocket. Target latency: &lt;50ms on LAN.
+          Connects via WebSocket over local Wi-Fi (port 3333). Target latency &lt;50ms.{'\n\n'}
+          Sensitivity scale matches Asphalt 9 (0–100). No game memory is read.
         </Text>
       </View>
     </ScrollView>
@@ -234,6 +289,7 @@ function Stepper({
   max,
   step,
   decimals,
+  unit,
   colors,
   onChange,
 }: {
@@ -244,6 +300,7 @@ function Stepper({
   max: number;
   step: number;
   decimals: number;
+  unit: string;
   colors: ReturnType<typeof useColors>;
   onChange: (v: number) => void;
 }) {
@@ -254,16 +311,26 @@ function Stepper({
     <View style={styles.stepperRow}>
       <View style={styles.stepperInfo}>
         <Text style={[styles.stepperLabel, { color: colors.foreground }]}>{label}</Text>
-        {description && <Text style={[styles.stepperDesc, { color: colors.mutedForeground }]}>{description}</Text>}
+        {description ? (
+          <Text style={[styles.stepperDesc, { color: colors.mutedForeground }]}>{description}</Text>
+        ) : null}
       </View>
       <View style={styles.stepperControls}>
-        <TouchableOpacity style={[styles.stepBtn, { backgroundColor: colors.secondary, borderColor: colors.border }]} onPress={dec}>
+        <TouchableOpacity
+          style={[styles.stepBtn, { backgroundColor: colors.secondary, borderColor: colors.border }]}
+          onPress={dec}
+        >
           <Feather name="minus" size={13} color={colors.foreground} />
         </TouchableOpacity>
         <View style={[styles.stepValue, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
-          <Text style={[styles.stepValueText, { color: colors.primary }]}>{value.toFixed(decimals)}</Text>
+          <Text style={[styles.stepValueText, { color: colors.primary }]}>
+            {value.toFixed(decimals)}{unit}
+          </Text>
         </View>
-        <TouchableOpacity style={[styles.stepBtn, { backgroundColor: colors.secondary, borderColor: colors.border }]} onPress={inc}>
+        <TouchableOpacity
+          style={[styles.stepBtn, { backgroundColor: colors.secondary, borderColor: colors.border }]}
+          onPress={inc}
+        >
           <Feather name="plus" size={13} color={colors.foreground} />
         </TouchableOpacity>
       </View>
@@ -288,7 +355,9 @@ function ToggleRow({
     <View style={styles.toggleRow}>
       <View style={styles.stepperInfo}>
         <Text style={[styles.stepperLabel, { color: colors.foreground }]}>{label}</Text>
-        {description && <Text style={[styles.stepperDesc, { color: colors.mutedForeground }]}>{description}</Text>}
+        {description ? (
+          <Text style={[styles.stepperDesc, { color: colors.mutedForeground }]}>{description}</Text>
+        ) : null}
       </View>
       <Switch
         value={value}
@@ -303,18 +372,8 @@ function ToggleRow({
 const styles = StyleSheet.create({
   root: { flex: 1 },
   content: { padding: 16, gap: 14 },
-  section: {
-    borderRadius: 14,
-    borderWidth: 1,
-    padding: 16,
-    gap: 14,
-  },
-  sectionTitle: {
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 2,
-    marginBottom: 2,
-  },
+  section: { borderRadius: 14, borderWidth: 1, padding: 16, gap: 14 },
+  sectionTitle: { fontSize: 10, fontWeight: '700', letterSpacing: 2, marginBottom: 2 },
   stepperRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -325,8 +384,23 @@ const styles = StyleSheet.create({
   stepperLabel: { fontSize: 14, fontWeight: '500' },
   stepperDesc: { fontSize: 11, lineHeight: 15 },
   stepperControls: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  stepBtn: { width: 32, height: 32, borderRadius: 8, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  stepValue: { minWidth: 60, height: 32, borderRadius: 8, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
+  stepBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepValue: {
+    minWidth: 64,
+    height: 32,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+  },
   stepValueText: { fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'] },
   toggleRow: {
     flexDirection: 'row',
@@ -335,9 +409,15 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   fieldLabel: { fontSize: 14, fontWeight: '500' },
-  rateRow: { gap: 10 },
-  ratePills: { flexDirection: 'row', gap: 8 },
-  ratePill: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1 },
+  fieldDesc: { fontSize: 11, lineHeight: 15, marginTop: 2 },
+  rateBlock: { gap: 8 },
+  ratePills: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  ratePill: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
   ratePillText: { fontSize: 13, fontWeight: '600' },
   emptyText: { fontSize: 13, textAlign: 'center', paddingVertical: 8 },
   profileRow: {
@@ -362,7 +442,14 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   saveBtn: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  cancelBtn: { width: 40, height: 40, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  cancelBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   addProfileBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -373,12 +460,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   addProfileText: { fontSize: 13, fontWeight: '600' },
-  aboutCard: {
-    borderRadius: 14,
-    borderWidth: 1,
-    padding: 16,
-    gap: 8,
-  },
+  aboutCard: { borderRadius: 14, borderWidth: 1, padding: 16, gap: 8 },
   aboutTitle: { fontSize: 10, fontWeight: '700', letterSpacing: 2 },
   aboutText: { fontSize: 12, lineHeight: 19 },
 });

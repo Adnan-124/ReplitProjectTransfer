@@ -156,10 +156,10 @@ export default function CalibrateScreen() {
         <Stepper
           label="Sensitivity"
           value={settings.sensitivity}
-          min={0.1}
-          max={5.0}
-          step={0.1}
-          decimals={1}
+          min={0}
+          max={100}
+          step={1}
+          decimals={0}
           colors={colors}
           onChange={(v) => updateSettings({ sensitivity: v })}
         />
@@ -167,9 +167,9 @@ export default function CalibrateScreen() {
           label="Deadzone"
           value={settings.deadzone}
           min={0}
-          max={0.5}
-          step={0.01}
-          decimals={2}
+          max={30}
+          step={1}
+          decimals={0}
           colors={colors}
           onChange={(v) => updateSettings({ deadzone: v })}
         />

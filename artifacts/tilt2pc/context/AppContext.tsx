@@ -55,10 +55,10 @@ interface AppContextValue {
 }
 
 const DEFAULT_SETTINGS: Settings = {
-  sensitivity: 1.5,
-  alpha: 0.35,
+  sensitivity: 70,   // 0–100 scale matching Asphalt 9
+  alpha: 0.70,       // higher = more responsive (less smoothing lag)
   beta: 0.08,
-  deadzone: 0.05,
+  deadzone: 5,       // 0–30 range (stored as %)
   invertSteering: false,
   sampleRate: 60,
 };
