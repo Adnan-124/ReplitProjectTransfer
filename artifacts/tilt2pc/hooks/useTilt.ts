@@ -1,28 +1,35 @@
 /**
- * useTilt — Accelerometer-based steering for Tilt2PC
+ * useTilt — Accelerometer steering hook for Tilt2PC
  *
- * AXIS MAPPING (why we switch axes in landscape):
- * ─────────────────────────────────────────────────────────────────
- * The accelerometer axes are FIXED to the phone hardware — they do
- * NOT rotate when the screen orientation changes.
+ * ═══════════════════════════════════════════════════════════════
+ * AXIS PHYSICS — why we use y (not x) in landscape
+ * ═══════════════════════════════════════════════════════════════
  *
- * Portrait mode:
- *   +x = points RIGHT along short edge  → left/right tilt = x ✓
- *   +y = points UP along long edge      → up/down tilt = y (ignored)
+ * The accelerometer axes are bolted to the hardware and NEVER rotate
+ * when the screen orientation changes.
  *
- * Landscape mode (phone rotated 90°):
- *   +x = now points DOWN (was right)    → x measures PITCH (up/down tilt) ✗
- *   +y = now points LEFT or RIGHT       → y measures ROLL  (left/right tilt) ✓
+ * Expo convention: accelerometer = -(gravity projection) in g-units.
+ *   Flat on table face-up:  z = -1  (gravity pulls toward -z)
+ *   Portrait held upright:  y = -1  (gravity pulls toward -y, which is down)
+ *   On left edge (landscape): x = +1 (gravity pulls toward -x, inverted → +1)
  *
- * Reading x in landscape is WHY "tilting up = turning left" happens.
- * Solution: switch to reading y in landscape mode.
+ * ┌─────────────────────────────────────────────────────────────┐
+ * │  PORTRAIT               │  LANDSCAPE (phone rotated)        │
+ * │  +y = UP                │  x is now gravity axis (≈ ±1)    │
+ * │  +x = RIGHT → steering  │  y is now steering axis          │
+ * │  Tilt right → x > 0 ✓  │  x in portrait was right,        │
+ * │                          │  in landscape it's up/down       │
+ * │  Using x in landscape = reading PITCH (up/down), not ROLL  │
+ * └─────────────────────────────────────────────────────────────┘
  *
- * Sign of y depends on rotation direction:
- *   LANDSCAPE_LEFT  (home on right, rotated CW):  +y points LEFT  → use -y
- *   LANDSCAPE_RIGHT (home on left,  rotated CCW): +y points RIGHT → use +y
+ * ORIENTATION DETECTION (no async, no race conditions):
+ *   Read the x value itself — in landscape x ≈ ±1 (it IS gravity).
+ *   x < 0 → LANDSCAPE_LEFT (home on left):  steer = −y
+ *   x > 0 → LANDSCAPE_RIGHT (home on right): steer = +y
+ *
+ * Both cases: right side UP → car turns LEFT, left side UP → car turns RIGHT ✓
  */
 
-import * as ScreenOrientation from 'expo-screen-orientation';
 import { useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
 import { useApp } from '@/context/AppContext';
@@ -37,24 +44,9 @@ export function useTilt(active: boolean) {
   const hzCountRef = useRef(0);
   const hzTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Track screen orientation so we pick the correct axis
-  const orientationRef = useRef<ScreenOrientation.Orientation>(
-    ScreenOrientation.Orientation.PORTRAIT_UP,
-  );
-
-  useEffect(() => {
-    if (Platform.OS === 'web') return;
-
-    ScreenOrientation.getOrientationAsync()
-      .then((o) => { orientationRef.current = o; })
-      .catch(() => {});
-
-    const sub = ScreenOrientation.addOrientationChangeListener(({ orientationInfo }) => {
-      orientationRef.current = orientationInfo.orientation;
-    });
-
-    return () => ScreenOrientation.removeOrientationChangeListener(sub);
-  }, []);
+  // Slowly-decaying x average so orientation detection is stable
+  // even during extreme banking. Alpha = 0.03 ≈ ~33 samples to settle.
+  const smoothXRef = useRef(0);
 
   useEffect(() => {
     if (!active || Platform.OS === 'web') return;
@@ -73,12 +65,11 @@ export function useTilt(active: boolean) {
 
     const { sensitivity, alpha, beta, deadzone, invertSteering, sampleRate } = settings;
 
-    // sensitivity: 0-100 UI scale where 100 = most sensitive
-    // Divisor = how many g of tilt produce full steer (±1)
-    //   100 → 0.20 (~12° tilt = full steer)
-    //    70 → 0.59 (~36° tilt = full steer, default)
-    //    50 → 0.85 (~58° tilt = full steer)
-    //     0 → 1.50 (~90° tilt = full steer)
+    // sensitivity 0-100 → physical divisor (g-force that = full steer ±1)
+    //   100 → 0.20  (~12° tilt = full steer)
+    //    70 → 0.59  (~36° tilt, default)
+    //    50 → 0.85  (~58° tilt)
+    //     0 → 1.50  (~90° tilt)
     const sensitivityDivisor = Math.max(0.1, 1.5 - (1.3 * sensitivity) / 100);
 
     Accelerometer.setUpdateInterval(Math.round(1000 / sampleRate));
@@ -88,34 +79,57 @@ export function useTilt(active: boolean) {
       hzCountRef.current = 0;
     }, 1000);
 
+    // Seed smoothX with 0 so it converges to the actual x within ~1 second.
+    // We don't need it to be accurate immediately — the deadzone handles that.
+    smoothXRef.current = 0;
+
     const subscription = Accelerometer.addListener(
       ({ x, y }: { x: number; y: number; z: number }) => {
         hzCountRef.current += 1;
 
-        // ── AXIS SELECTION ─────────────────────────────────────────
-        const o = orientationRef.current;
-        const Ori = ScreenOrientation.Orientation;
+        // ── ORIENTATION AUTO-DETECTION ───────────────────────────
+        // Update the slow x tracker. Alpha=0.03 → very stable sign,
+        // won't flip from normal gameplay banking.
+        smoothXRef.current = 0.03 * x + 0.97 * smoothXRef.current;
+
+        // In landscape the phone has been rotated 90°, so x is the
+        // gravity axis (≈ ±1) and y is the left/right steering axis.
+        // We detect which landscape orientation by the sign of x:
+        //
+        //   smoothX < 0  →  LANDSCAPE_LEFT  (home on left,  rotated CW)
+        //                   +y points RIGHT → right side up → y > 0
+        //                   → steer = -y   (negative = LEFT steer) ✓
+        //
+        //   smoothX > 0  →  LANDSCAPE_RIGHT (home on right, rotated CCW)
+        //                   +y points LEFT  → right side up → y < 0
+        //                   → steer = y    (negative = LEFT steer) ✓
+        //
+        //   |smoothX| < 0.25  → portrait or phone is nearly vertical
+        //                        fallback to x (classic portrait steering)
 
         let steerAxis: number;
-        if (o === Ori.LANDSCAPE_LEFT) {
-          // Rotated CW: +y points LEFT → negate so right tilt = positive
+        const sx = smoothXRef.current;
+
+        if (sx < -0.25) {
+          // LANDSCAPE_LEFT
           steerAxis = -y;
-        } else if (o === Ori.LANDSCAPE_RIGHT) {
-          // Rotated CCW: +y points RIGHT → use directly
+        } else if (sx > 0.25) {
+          // LANDSCAPE_RIGHT
           steerAxis = y;
         } else {
-          // Portrait (up or down): +x is always left/right tilt
-          steerAxis = o === Ori.PORTRAIT_DOWN ? -x : x;
+          // Portrait / transitioning
+          steerAxis = x;
         }
 
-        // ── STEERING PIPELINE ──────────────────────────────────────
+        // ── STEERING PIPELINE ────────────────────────────────────
+
         const raw = invertSteering ? -steerAxis : steerAxis;
 
-        // 1. Remove calibrated neutral offset, scale to [-1, 1]
+        // 1. Remove calibrated neutral, scale to [-1, 1]
         const normalized = (raw - neutralTilt) / sensitivityDivisor;
         const clamped = Math.max(-1, Math.min(1, normalized));
 
-        // 2. Deadzone: ignore small centre wobble
+        // 2. Deadzone — kill small centre wobble
         const dz = deadzone / 100;
         const withDeadzone =
           Math.abs(clamped) < dz
@@ -124,11 +138,10 @@ export function useTilt(active: boolean) {
               ? (clamped - dz) / (1 - dz)
               : (clamped + dz) / (1 - dz);
 
-        // 3. Exponential low-pass filter
-        //    alpha near 1.0 = raw/instant, near 0.0 = very smooth but laggy
+        // 3. Exponential low-pass (alpha near 1 = raw/instant, near 0 = laggy)
         const smoothed = alpha * withDeadzone + (1 - alpha) * prevSmoothed.current;
 
-        // 4. Predictive delta: compensates for filter-induced lag
+        // 4. Predictive delta to cancel filter lag
         const predicted = smoothed + beta * (smoothed - prevPrevSmoothed.current);
         const finalValue = Math.max(-1, Math.min(1, predicted));
 
@@ -137,17 +150,10 @@ export function useTilt(active: boolean) {
 
         setSteerValue(finalValue);
 
-        // 5. Send only when value changed enough OR periodic timeout
+        // 5. Send if changed enough or timed out
         const now = Date.now();
-        const changed = Math.abs(finalValue - lastSent.current) > 0.004;
-        const timedOut = now - lastSentTime.current > 40;
-
-        if (changed || timedOut) {
-          sendMessage({
-            type: 'steer',
-            ts: now,
-            value: parseFloat(finalValue.toFixed(4)),
-          });
+        if (Math.abs(finalValue - lastSent.current) > 0.004 || now - lastSentTime.current > 40) {
+          sendMessage({ type: 'steer', ts: now, value: parseFloat(finalValue.toFixed(4)) });
           lastSent.current = finalValue;
           lastSentTime.current = now;
         }
@@ -160,7 +166,7 @@ export function useTilt(active: boolean) {
     };
   }, [active, settings, neutralTilt, sendMessage, setSteerValue, setActualHz]);
 
-  // Web: sine-wave simulation so the UI is previewable in browser
+  // Web: sine-wave simulation for browser preview
   useEffect(() => {
     if (!active || Platform.OS !== 'web') return;
     let t = 0;

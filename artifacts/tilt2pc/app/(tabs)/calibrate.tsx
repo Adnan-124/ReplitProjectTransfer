@@ -21,17 +21,13 @@ export default function CalibrateScreen() {
   const insets = useSafeAreaInsets();
   const { calibrate, neutralX: neutralTilt, settings, updateSettings } = useApp();
 
-  // rawTilt is already axis-corrected (same logic as useTilt)
   const [rawTilt, setRawTilt] = useState(0);
-  const [axisLabel, setAxisLabel] = useState('x');
+  const [axisLabel, setAxisLabel] = useState('detecting…');
   const [calibrated, setCalibrated] = useState(false);
   const pulseAnim = useRef(new Animated.Value(1)).current;
-  const orientationRef = useRef<ScreenOrientation.Orientation>(
-    ScreenOrientation.Orientation.PORTRAIT_UP,
-  );
   const subRef = useRef<{ remove: () => void } | null>(null);
 
-  // Lock to landscape (same as control screen) so calibration uses the correct axis
+  // Lock to landscape — calibration MUST happen in the same orientation as gameplay
   useFocusEffect(
     useCallback(() => {
       if (Platform.OS !== 'web') {
@@ -39,43 +35,21 @@ export default function CalibrateScreen() {
       }
       return () => {
         if (Platform.OS !== 'web') {
-          ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
+          ScreenOrientation.lockAsync(
+            ScreenOrientation.OrientationLock.PORTRAIT_UP,
+          ).catch(() => {});
         }
       };
     }, []),
   );
 
-  // Track orientation for correct axis read
-  useEffect(() => {
-    if (Platform.OS === 'web') return;
-
-    ScreenOrientation.getOrientationAsync()
-      .then((o) => { orientationRef.current = o; })
-      .catch(() => {});
-
-    const oriSub = ScreenOrientation.addOrientationChangeListener(({ orientationInfo }) => {
-      orientationRef.current = orientationInfo.orientation;
-      updateAxisLabel(orientationInfo.orientation);
-    });
-
-    return () => ScreenOrientation.removeOrientationChangeListener(oriSub);
-  }, []);
-
-  const updateAxisLabel = (o: ScreenOrientation.Orientation) => {
-    const Ori = ScreenOrientation.Orientation;
-    if (o === Ori.LANDSCAPE_LEFT || o === Ori.LANDSCAPE_RIGHT) {
-      setAxisLabel('y');
-    } else {
-      setAxisLabel('x');
-    }
-  };
-
   useEffect(() => {
     if (Platform.OS === 'web') {
       let t = 0;
+      setAxisLabel('y (simulated)');
       const id = setInterval(() => {
         t += 0.03;
-        setRawTilt(Math.sin(t) * 0.15);
+        setRawTilt(Math.sin(t) * 0.12);
       }, 50);
       return () => clearInterval(id);
     }
@@ -91,23 +65,28 @@ export default function CalibrateScreen() {
       };
       Accelerometer.setUpdateInterval(33);
 
-      subRef.current = Accelerometer.addListener(({ x, y }) => {
-        const o = orientationRef.current;
-        const Ori = ScreenOrientation.Orientation;
+      // Slow-decaying x tracker — same logic as useTilt.ts (no race condition)
+      let smoothX = 0;
 
-        // Mirror axis logic from useTilt.ts
+      subRef.current = Accelerometer.addListener(({ x, y }) => {
+        smoothX = 0.05 * x + 0.95 * smoothX;
+
         let value: number;
-        if (o === Ori.LANDSCAPE_LEFT) {
-          value = -y;          // CW rotation: negate y
-          setAxisLabel('y (negated)');
-        } else if (o === Ori.LANDSCAPE_RIGHT) {
-          value = y;            // CCW rotation: use y directly
-          setAxisLabel('y');
+        let label: string;
+
+        if (smoothX < -0.25) {
+          value = -y;
+          label = '−y  (landscape-left)';
+        } else if (smoothX > 0.25) {
+          value = y;
+          label = '+y  (landscape-right)';
         } else {
-          value = o === Ori.PORTRAIT_DOWN ? -x : x;
-          setAxisLabel('x');
+          value = x;
+          label = 'x  (portrait)';
         }
+
         setRawTilt(value);
+        setAxisLabel(label);
       });
     } catch {}
 
@@ -135,6 +114,9 @@ export default function CalibrateScreen() {
         ? colors.primary
         : colors.accent;
 
+  // Track dot position (0% = full left, 100% = full right)
+  const dotPct = ((steer + 1) / 2) * 100;
+
   return (
     <ScrollView
       style={[styles.root, { backgroundColor: colors.background }]}
@@ -144,81 +126,129 @@ export default function CalibrateScreen() {
       ]}
       showsVerticalScrollIndicator={false}
     >
-      {/* Axis info banner */}
-      <View style={[styles.axisBanner, { backgroundColor: colors.primary + '18', borderColor: colors.primary + '44' }]}>
-        <Feather name="info" size={14} color={colors.primary} />
+      {/* Axis indicator */}
+      <View
+        style={[
+          styles.axisBanner,
+          { backgroundColor: colors.primary + '18', borderColor: colors.primary + '44' },
+        ]}
+      >
+        <Feather name="cpu" size={14} color={colors.primary} />
         <Text style={[styles.axisText, { color: colors.primary }]}>
-          Reading axis: <Text style={{ fontWeight: '800' }}>{axisLabel}</Text>
-          {'  '}(landscape = y, portrait = x)
+          Active axis:{' '}
+          <Text style={{ fontWeight: '800', fontVariant: ['tabular-nums'] }}>{axisLabel}</Text>
         </Text>
       </View>
 
-      {/* Live Tilt Visualizer */}
-      <View style={[styles.vizCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-        <Text style={[styles.vizTitle, { color: colors.mutedForeground }]}>LIVE STEERING VALUE</Text>
+      {/* Live steer visualizer */}
+      <View
+        style={[styles.vizCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+      >
+        <Text style={[styles.vizTitle, { color: colors.mutedForeground }]}>LIVE STEERING</Text>
+
         <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
           <Text style={[styles.rawValue, { color: indicatorColor }]}>
-            {steer >= 0 ? '+' : ''}{steer.toFixed(3)}
+            {steer >= 0 ? '+' : ''}
+            {steer.toFixed(3)}
           </Text>
         </Animated.View>
 
-        {/* Steering track */}
-        <View style={[styles.track, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
-          <View style={[styles.centerMark, { backgroundColor: colors.primary + '66' }]} />
+        {/* Track */}
+        <View
+          style={[styles.track, { backgroundColor: colors.secondary, borderColor: colors.border }]}
+        >
+          <View style={[styles.centerMark, { backgroundColor: colors.primary + '55' }]} />
           <View
             style={[
-              styles.indicator,
+              styles.dot,
               {
-                left: `${((steer + 1) / 2) * 100}%` as any,
+                left: `${dotPct}%` as any,
                 backgroundColor: indicatorColor,
                 shadowColor: indicatorColor,
-                transform: [{ translateX: -10 }],
+                transform: [{ translateX: -11 }],
               },
             ]}
           />
         </View>
 
-        <View style={styles.rawRow}>
-          <Text style={[styles.rawLabel, { color: colors.mutedForeground }]}>Raw ({axisLabel}): </Text>
-          <Text style={[styles.rawSmall, { color: colors.foreground }]}>{rawTilt.toFixed(4)}</Text>
-          <Text style={[styles.rawLabel, { color: colors.mutedForeground }]}>{'  '}Neutral: </Text>
-          <Text style={[styles.rawSmall, { color: colors.primary }]}>{neutralTilt.toFixed(4)}</Text>
+        {/* Direction labels */}
+        <View style={styles.dirRow}>
+          <Text style={[styles.dirLabel, { color: colors.primary }]}>◀ LEFT</Text>
+          <View style={styles.rawRow}>
+            <Text style={[styles.rawSmall, { color: colors.mutedForeground }]}>raw: </Text>
+            <Text style={[styles.rawSmall, { color: colors.foreground, fontWeight: '700' }]}>
+              {rawTilt.toFixed(4)}
+            </Text>
+            <Text style={[styles.rawSmall, { color: colors.mutedForeground }]}>  neutral: </Text>
+            <Text style={[styles.rawSmall, { color: colors.primary, fontWeight: '700' }]}>
+              {neutralTilt.toFixed(4)}
+            </Text>
+          </View>
+          <Text style={[styles.dirLabel, { color: colors.accent }]}>RIGHT ▶</Text>
         </View>
       </View>
 
       {/* Instructions */}
-      <View style={[styles.instructionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-        <View style={styles.step}>
-          <StepNum n={1} colors={colors} />
-          <Text style={[styles.stepText, { color: colors.foreground }]}>
-            The screen is locked to <Text style={{ color: colors.primary, fontWeight: '700' }}>landscape</Text> — hold the phone as you would during gameplay.
-          </Text>
-        </View>
-        <View style={styles.step}>
-          <StepNum n={2} colors={colors} />
-          <Text style={[styles.stepText, { color: colors.foreground }]}>
-            Hold the phone level in your neutral driving position (slightly angled is fine).
-          </Text>
-        </View>
-        <View style={styles.step}>
-          <StepNum n={3} colors={colors} />
-          <Text style={[styles.stepText, { color: colors.foreground }]}>
-            Tap <Text style={{ color: colors.primary, fontWeight: '700' }}>Calibrate</Text>. The steering value above should read{' '}
-            <Text style={{ color: colors.success, fontWeight: '700' }}>+0.000</Text> when centred.
-          </Text>
-        </View>
-        <View style={styles.step}>
-          <StepNum n={4} colors={colors} />
-          <Text style={[styles.stepText, { color: colors.foreground }]}>
-            Verify: tilt{' '}
-            <Text style={{ color: colors.primary, fontWeight: '700' }}>LEFT → negative</Text>
-            {'  '}tilt{' '}
-            <Text style={{ color: colors.accent, fontWeight: '700' }}>RIGHT → positive</Text>
-          </Text>
-        </View>
+      <View
+        style={[
+          styles.instructionCard,
+          { backgroundColor: colors.card, borderColor: colors.border },
+        ]}
+      >
+        {[
+          {
+            n: 1,
+            text: (
+              <Text style={[styles.stepText, { color: colors.foreground }]}>
+                Screen is locked to{' '}
+                <Text style={{ color: colors.primary, fontWeight: '700' }}>landscape</Text>.
+                Hold the phone exactly as you will during gameplay.
+              </Text>
+            ),
+          },
+          {
+            n: 2,
+            text: (
+              <Text style={[styles.stepText, { color: colors.foreground }]}>
+                Hold the phone{' '}
+                <Text style={{ color: colors.primary, fontWeight: '700' }}>level</Text> in your
+                natural grip — the steering value above should be near{' '}
+                <Text style={{ color: colors.success, fontWeight: '700' }}>0.000</Text>.
+              </Text>
+            ),
+          },
+          {
+            n: 3,
+            text: (
+              <Text style={[styles.stepText, { color: colors.foreground }]}>
+                Tap <Text style={{ color: colors.primary, fontWeight: '700' }}>Calibrate</Text>.
+                Then verify:{' '}
+                <Text style={{ color: colors.primary, fontWeight: '700' }}>
+                  right side up = LEFT ◀
+                </Text>
+                {'  '}
+                <Text style={{ color: colors.accent, fontWeight: '700' }}>
+                  left side up = RIGHT ▶
+                </Text>
+              </Text>
+            ),
+          },
+        ].map(({ n, text }) => (
+          <View key={n} style={styles.step}>
+            <View
+              style={[
+                styles.stepNum,
+                { backgroundColor: colors.primary + '22', borderColor: colors.primary + '44' },
+              ]}
+            >
+              <Text style={[styles.stepNumText, { color: colors.primary }]}>{n}</Text>
+            </View>
+            {text}
+          </View>
+        ))}
       </View>
 
-      {/* Calibrate Button */}
+      {/* Calibrate button */}
       <TouchableOpacity
         style={[styles.calibrateBtn, { backgroundColor: colors.primary }]}
         onPress={handleCalibrate}
@@ -239,16 +269,16 @@ export default function CalibrateScreen() {
         >
           <Feather name="check-circle" size={16} color={colors.success} />
           <Text style={[styles.successText, { color: colors.success }]}>
-            Neutral set to {neutralTilt.toFixed(4)} (axis: {axisLabel})
+            Neutral set to {neutralTilt.toFixed(4)} — axis: {axisLabel}
           </Text>
         </View>
       )}
 
-      {/* Quick sensitivity adjust */}
-      <View style={[styles.settingsCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-        <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>
-          QUICK ADJUST (matches Asphalt 9 scale)
-        </Text>
+      {/* Quick sensitivity controls */}
+      <View
+        style={[styles.settingsCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+      >
+        <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>QUICK ADJUST</Text>
         <Stepper
           label="Sensitivity"
           value={settings.sensitivity}
@@ -282,18 +312,7 @@ export default function CalibrateScreen() {
   );
 }
 
-function StepNum({ n, colors }: { n: number; colors: ReturnType<typeof useColors> }) {
-  return (
-    <View
-      style={[
-        styles.stepNum,
-        { backgroundColor: colors.primary + '22', borderColor: colors.primary + '44' },
-      ]}
-    >
-      <Text style={[styles.stepNumText, { color: colors.primary }]}>{n}</Text>
-    </View>
-  );
-}
+// ─── tiny sub-components ────────────────────────────────────────────────────
 
 function Stepper({
   label,
@@ -348,6 +367,7 @@ function Stepper({
 const styles = StyleSheet.create({
   root: { flex: 1 },
   content: { padding: 20, gap: 16 },
+
   axisBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -357,26 +377,24 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   axisText: { fontSize: 13, flex: 1 },
+
   vizCard: {
     borderRadius: 14,
     borderWidth: 1,
     padding: 20,
     alignItems: 'center',
-    gap: 12,
+    gap: 14,
   },
   vizTitle: { fontSize: 10, letterSpacing: 2, fontWeight: '700' },
-  rawValue: {
-    fontSize: 48,
-    fontWeight: '900',
-    fontVariant: ['tabular-nums'],
-  },
+  rawValue: { fontSize: 52, fontWeight: '900', fontVariant: ['tabular-nums'] },
+
   track: {
     width: '100%',
-    height: 20,
-    borderRadius: 10,
+    height: 22,
+    borderRadius: 11,
     borderWidth: 1,
-    overflow: 'hidden',
     position: 'relative',
+    overflow: 'hidden',
   },
   centerMark: {
     position: 'absolute',
@@ -385,9 +403,9 @@ const styles = StyleSheet.create({
     height: '100%',
     marginLeft: -1,
   },
-  indicator: {
+  dot: {
     position: 'absolute',
-    top: 0,
+    top: 1,
     width: 20,
     height: 20,
     borderRadius: 10,
@@ -396,15 +414,18 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 4,
   },
-  rawRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center' },
-  rawLabel: { fontSize: 11 },
-  rawSmall: { fontSize: 12, fontWeight: '600', fontVariant: ['tabular-nums'] },
-  instructionCard: {
-    borderRadius: 14,
-    borderWidth: 1,
-    padding: 16,
-    gap: 14,
+
+  dirRow: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
+  dirLabel: { fontSize: 12, fontWeight: '700', letterSpacing: 1 },
+  rawRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
+  rawSmall: { fontSize: 11, fontVariant: ['tabular-nums'] },
+
+  instructionCard: { borderRadius: 14, borderWidth: 1, padding: 16, gap: 14 },
   step: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
   stepNum: {
     width: 28,
@@ -417,6 +438,7 @@ const styles = StyleSheet.create({
   },
   stepNumText: { fontSize: 13, fontWeight: '800' },
   stepText: { flex: 1, fontSize: 14, lineHeight: 21 },
+
   calibrateBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -426,6 +448,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
   calibrateBtnText: { fontSize: 16, fontWeight: '800', letterSpacing: 2 },
+
   successBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -435,12 +458,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   successText: { fontSize: 13, fontWeight: '600', flex: 1 },
-  settingsCard: {
-    borderRadius: 14,
-    borderWidth: 1,
-    padding: 16,
-    gap: 12,
-  },
+
+  settingsCard: { borderRadius: 14, borderWidth: 1, padding: 16, gap: 12 },
   sectionTitle: { fontSize: 10, letterSpacing: 2, fontWeight: '700' },
   stepperRow: {
     flexDirection: 'row',
@@ -467,6 +486,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   stepValueText: { fontSize: 14, fontWeight: '700', fontVariant: ['tabular-nums'] },
+
   doneBtn: {
     alignItems: 'center',
     justifyContent: 'center',
