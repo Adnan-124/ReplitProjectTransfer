@@ -13,13 +13,15 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ControlButton } from '@/components/ControlButton';
 import { DiagnosticsOverlay } from '@/components/DiagnosticsOverlay';
+import { DraggableButton } from '@/components/DraggableButton';
 import { NitroButton, type NitroType } from '@/components/NitroButton';
 import { SteeringBar } from '@/components/SteeringBar';
 import { useApp } from '@/context/AppContext';
 import { useColors } from '@/hooks/useColors';
+import { BUTTON_BOX, type HUDButtonId, useHUDLayout } from '@/hooks/useHUDLayout';
 import { useTilt } from '@/hooks/useTilt';
 
-type ButtonId = 'DRIFT' | 'BRAKE' | 'CAMERA' | 'SHOCKWAVE' | 'MENU';
+type SimpleButtonId = 'DRIFT' | 'BRAKE' | 'CAMERA' | 'SHOCKWAVE' | 'MENU';
 
 export default function ControlScreen() {
   const colors = useColors();
@@ -28,11 +30,16 @@ export default function ControlScreen() {
   const { sendMessage, setLastEvent, connectionStatus, steerValue } = useApp();
   const [showDiag, setShowDiag] = useState(false);
 
+  // Body dimensions — filled by onLayout so DraggableButton can clamp correctly
+  const [bodyW, setBodyW] = useState(0);
+  const [bodyH, setBodyH] = useState(0);
+
+  const hud = useHUDLayout(bodyW, bodyH);
+
   const isLandscape = width > height;
 
   useTilt(true);
 
-  // Lock to landscape on native, restore portrait on leave
   useFocusEffect(
     useCallback(() => {
       if (Platform.OS !== 'web') {
@@ -40,21 +47,22 @@ export default function ControlScreen() {
       }
       return () => {
         if (Platform.OS !== 'web') {
-          ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
+          ScreenOrientation.lockAsync(
+            ScreenOrientation.OrientationLock.PORTRAIT_UP,
+          ).catch(() => {});
         }
       };
     }, []),
   );
 
   const btn = useCallback(
-    (id: ButtonId, action: 'down' | 'up' | 'click') => {
+    (id: SimpleButtonId, action: 'down' | 'up' | 'click') => {
       sendMessage({ type: 'button', ts: Date.now(), id, action });
       setLastEvent(`${id}:${action}`);
     },
     [sendMessage, setLastEvent],
   );
 
-  // Called by NitroButton when a nitro type is determined
   const handleNitro = useCallback(
     (nitroType: NitroType) => {
       sendMessage({ type: 'nitro', ts: Date.now(), nitroType });
@@ -73,9 +81,26 @@ export default function ControlScreen() {
   const rPad = Math.max(insets.right, Platform.OS === 'web' ? 8 : 12);
   const tPad = insets.top + (Platform.OS === 'web' ? (isLandscape ? 0 : 67) : 4);
 
+  // ── Draggable button config ──────────────────────────────────────────────
+  const draggable = (id: HUDButtonId, children: React.ReactNode) => (
+    <DraggableButton
+      key={id}
+      id={id}
+      position={hud.getPosition(id)}
+      editMode={hud.editMode}
+      onDrop={(pos) => hud.updatePosition(id, pos)}
+      bodyW={bodyW}
+      bodyH={bodyH}
+      btnW={BUTTON_BOX[id].w}
+      btnH={BUTTON_BOX[id].h}
+    >
+      {children}
+    </DraggableButton>
+  );
+
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      {/* ── TOP BAR ────────────────────────────────────────── */}
+      {/* ── TOP BAR ──────────────────────────────────────────────────── */}
       <View
         style={[
           styles.topBar,
@@ -103,17 +128,44 @@ export default function ControlScreen() {
             },
           ]}
         >
-          <View style={[styles.liveDot, { backgroundColor: connected ? colors.success : colors.destructive }]} />
-          <Text style={[styles.liveText, { color: connected ? colors.success : colors.destructive }]}>
+          <View
+            style={[styles.liveDot, { backgroundColor: connected ? colors.success : colors.destructive }]}
+          />
+          <Text
+            style={[
+              styles.liveText,
+              { color: connected ? colors.success : colors.destructive },
+            ]}
+          >
             {connected ? 'LIVE' : 'OFFLINE'}
           </Text>
         </View>
 
         <View style={styles.topCenter}>
           <Text style={[styles.steerPct, { color: steerColor }]}>
-            {steerDir}{'  '}{steerPct}%
+            {steerDir}
+            {'  '}
+            {steerPct}%
           </Text>
         </View>
+
+        {/* HUD edit mode toggle */}
+        <TouchableOpacity
+          style={[
+            styles.iconBtn,
+            {
+              backgroundColor: hud.editMode ? '#06b6d422' : colors.card,
+              borderColor: hud.editMode ? '#06b6d4' : colors.border,
+            },
+          ]}
+          onPress={() => hud.setEditMode((v) => !v)}
+        >
+          <Feather
+            name={hud.editMode ? 'check' : 'layout'}
+            size={16}
+            color={hud.editMode ? '#06b6d4' : colors.mutedForeground}
+          />
+        </TouchableOpacity>
 
         <TouchableOpacity
           style={[
@@ -125,50 +177,31 @@ export default function ControlScreen() {
           ]}
           onPress={() => setShowDiag((v) => !v)}
         >
-          <Feather name="activity" size={16} color={showDiag ? colors.primary : colors.mutedForeground} />
+          <Feather
+            name="activity"
+            size={16}
+            color={showDiag ? colors.primary : colors.mutedForeground}
+          />
         </TouchableOpacity>
       </View>
 
-      {/* ── DIAG OVERLAY ───────────────────────────────────── */}
+      {/* ── DIAG OVERLAY ─────────────────────────────────────────────── */}
       {showDiag && (
         <View style={[styles.diagRow, { paddingHorizontal: lPad }]}>
           <DiagnosticsOverlay />
         </View>
       )}
 
-      {/* ── MAIN BODY ──────────────────────────────────────── */}
-      <View style={[styles.body, { paddingLeft: lPad, paddingRight: rPad }]}>
-
-        {/* LEFT PAD — left thumb */}
-        <View style={styles.leftPad}>
-          <ControlButton
-            label="CAMERA"
-            color={colors.camera}
-            size="medium"
-            onDown={() => btn('CAMERA', 'down')}
-            onUp={() => btn('CAMERA', 'up')}
-            onPress={() => btn('CAMERA', 'click')}
-          />
-          <ControlButton
-            label="SHOCK"
-            color={colors.shockwave}
-            size="small"
-            onDown={() => btn('SHOCKWAVE', 'down')}
-            onUp={() => btn('SHOCKWAVE', 'up')}
-            onPress={() => btn('SHOCKWAVE', 'click')}
-          />
-          <ControlButton
-            label="MENU"
-            color={colors.mutedForeground}
-            size="small"
-            onDown={() => btn('MENU', 'down')}
-            onUp={() => btn('MENU', 'up')}
-            onPress={() => btn('MENU', 'click')}
-          />
-        </View>
-
-        {/* CENTER — steering indicator */}
-        <View style={styles.center}>
+      {/* ── MAIN BODY ────────────────────────────────────────────────── */}
+      <View
+        style={[styles.body, { paddingLeft: lPad, paddingRight: rPad }]}
+        onLayout={(e) => {
+          setBodyW(e.nativeEvent.layout.width);
+          setBodyH(e.nativeEvent.layout.height);
+        }}
+      >
+        {/* Fixed center: SteeringBar + tilt hint. pointerEvents=none so tilt works everywhere */}
+        <View style={styles.centerFixed} pointerEvents="none">
           <SteeringBar value={steerValue} />
           <View style={styles.tiltHint}>
             <Feather name="navigation" size={20} color={colors.primary + '55'} />
@@ -176,8 +209,7 @@ export default function ControlScreen() {
               TILT TO STEER
             </Text>
           </View>
-
-          {/* Nitro legend */}
+          {/* Nitro legend (small, centre) */}
           <View style={styles.nitroLegend}>
             <View style={styles.legendRow}>
               <View style={[styles.legendDot, { backgroundColor: '#f59e0b' }]} />
@@ -194,38 +226,97 @@ export default function ControlScreen() {
           </View>
         </View>
 
-        {/* RIGHT PAD — right thumb */}
-        <View style={styles.rightPad}>
-          {/* Nitro button with state machine */}
-          <NitroButton
-            onNitro={handleNitro}
-            borderColor={colors.nitro}
-            backgroundColor={colors.background}
-          />
-
-          {/* DRIFT + BRAKE row */}
-          <View style={styles.rightRow}>
-            <ControlButton
-              label="DRIFT"
-              color={colors.drift}
-              size="medium"
-              continuous
-              onDown={() => btn('DRIFT', 'down')}
-              onUp={() => btn('DRIFT', 'up')}
-            />
-            <ControlButton
-              label="BRAKE"
-              color={colors.brake}
-              size="medium"
-              continuous
-              onDown={() => btn('BRAKE', 'down')}
-              onUp={() => btn('BRAKE', 'up')}
-            />
+        {/* ── Edit mode: floating instructions + reset ─────────────── */}
+        {hud.editMode && (
+          <View style={styles.editBanner} pointerEvents="box-none">
+            <Text style={styles.editBannerText}>DRAG BUTTONS TO REPOSITION</Text>
+            <TouchableOpacity
+              style={styles.resetBtn}
+              onPress={hud.resetLayout}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Feather name="refresh-cw" size={11} color="#06b6d4" />
+              <Text style={styles.resetText}>RESET</Text>
+            </TouchableOpacity>
           </View>
-        </View>
+        )}
+
+        {/* ── Draggable HUD buttons (render only after body is measured) */}
+        {bodyW > 0 && (
+          <>
+            {draggable(
+              'CAMERA',
+              <ControlButton
+                label="CAMERA"
+                color={colors.camera}
+                size="medium"
+                onDown={() => btn('CAMERA', 'down')}
+                onUp={() => btn('CAMERA', 'up')}
+                onPress={() => btn('CAMERA', 'click')}
+              />,
+            )}
+
+            {draggable(
+              'SHOCK',
+              <ControlButton
+                label="SHOCK"
+                color={colors.shockwave}
+                size="small"
+                onDown={() => btn('SHOCKWAVE', 'down')}
+                onUp={() => btn('SHOCKWAVE', 'up')}
+                onPress={() => btn('SHOCKWAVE', 'click')}
+              />,
+            )}
+
+            {draggable(
+              'MENU',
+              <ControlButton
+                label="MENU"
+                color={colors.mutedForeground}
+                size="small"
+                onDown={() => btn('MENU', 'down')}
+                onUp={() => btn('MENU', 'up')}
+                onPress={() => btn('MENU', 'click')}
+              />,
+            )}
+
+            {draggable(
+              'NITRO',
+              <NitroButton
+                onNitro={handleNitro}
+                borderColor={colors.nitro}
+                backgroundColor={colors.background}
+              />,
+            )}
+
+            {draggable(
+              'DRIFT',
+              <ControlButton
+                label="DRIFT"
+                color={colors.drift}
+                size="medium"
+                continuous
+                onDown={() => btn('DRIFT', 'down')}
+                onUp={() => btn('DRIFT', 'up')}
+              />,
+            )}
+
+            {draggable(
+              'BRAKE',
+              <ControlButton
+                label="BRAKE"
+                color={colors.brake}
+                size="medium"
+                continuous
+                onDown={() => btn('BRAKE', 'down')}
+                onUp={() => btn('BRAKE', 'up')}
+              />,
+            )}
+          </>
+        )}
       </View>
 
-      {/* ── BOTTOM SAFE AREA ───────────────────────────────── */}
+      {/* ── BOTTOM SAFE AREA ─────────────────────────────────────────── */}
       <View style={{ height: Math.max(insets.bottom, 4) }} />
     </View>
   );
@@ -237,7 +328,7 @@ const styles = StyleSheet.create({
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
     paddingBottom: 6,
     borderBottomWidth: 1,
   },
@@ -268,71 +359,61 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
 
-  diagRow: {
-    paddingVertical: 6,
-    alignItems: 'center',
-  },
+  diagRow: { paddingVertical: 6, alignItems: 'center' },
 
   body: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    gap: 8,
+    position: 'relative', // establishes containing block for absolute buttons
   },
 
-  leftPad: {
-    width: 96,
-    alignItems: 'center',
-    justifyContent: 'space-evenly',
-    alignSelf: 'stretch',
-  },
-
-  center: {
-    flex: 1,
+  // ── Center content (steering + hint) — fills body, flex-centered ──
+  centerFixed: {
+    ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 12,
   },
-  tiltHint: {
-    alignItems: 'center',
-    gap: 6,
-  },
-  tiltLabel: {
-    fontSize: 9,
-    letterSpacing: 2.5,
-    fontWeight: '700',
-  },
-  nitroLegend: {
-    gap: 4,
-    alignItems: 'flex-start',
-  },
-  legendRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  legendDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  legendText: {
-    fontSize: 9,
-    fontWeight: '600',
-    letterSpacing: 0.5,
-  },
+  tiltHint: { alignItems: 'center', gap: 6 },
+  tiltLabel: { fontSize: 9, letterSpacing: 2.5, fontWeight: '700' },
+  nitroLegend: { gap: 4, alignItems: 'flex-start', marginTop: 4 },
+  legendRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  legendDot: { width: 6, height: 6, borderRadius: 3 },
+  legendText: { fontSize: 9, fontWeight: '600', letterSpacing: 0.5 },
 
-  rightPad: {
-    width: 210,
-    alignItems: 'center',
-    justifyContent: 'space-evenly',
-    alignSelf: 'stretch',
-    gap: 8,
-    paddingVertical: 4,
-  },
-  rightRow: {
+  // ── Edit mode overlay ─────────────────────────────────────────────
+  editBanner: {
+    position: 'absolute',
+    top: 8,
+    left: 0,
+    right: 0,
     flexDirection: 'row',
-    gap: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 14,
+    zIndex: 50,
+    pointerEvents: 'box-none',
+  },
+  editBannerText: {
+    color: '#06b6d4',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 2,
+  },
+  resetBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#06b6d455',
+    backgroundColor: '#06b6d410',
+  },
+  resetText: {
+    color: '#06b6d4',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 1.5,
   },
 });

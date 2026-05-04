@@ -1,0 +1,123 @@
+## Combined Prompt: Tilt Calibration + Custom HUD Controls
+
+I am building a mobile-to-PC controller for a racing game using my Android phone. I use the DeviceOrientation API (gamma axis) for steering and touchscreen buttons for controls.
+
+---
+
+### Problem 1: Tilt Drift (Calibration Issue)
+
+When I hold the phone straight, the car still turns slightly left or right. This means the neutral position is not correctly aligned with zero.
+
+### Problem 2: Fixed UI Controls
+
+My on-screen buttons (Nitro, Brake, Drift, etc.) are fixed in position. I want to freely place them anywhere like in real mobile games.
+
+---
+
+## What I want
+
+Implement both:
+
+1. Proper tilt calibration system
+2. Fully customizable draggable HUD controls
+
+---
+
+## Part 1: Tilt Calibration System
+
+Requirements:
+
+1. Calibration:
+
+* Add a "Calibrate" button
+* When pressed, capture current gamma as neutral
+* Store this as `neutralGamma`
+
+2. Steering Logic:
+
+* steering = current_gamma - neutralGamma
+* Apply dead zone (ignore values within ±3)
+* Clamp steering range (e.g. -45 to +45)
+
+3. Auto Calibration:
+
+* Auto-set neutralGamma on first load
+* Allow recalibration anytime
+
+4. Landscape Handling:
+
+* Ensure correct axis behavior in landscape mode
+* Handle inversion if needed
+
+5. Smooth Control:
+
+* Add sensitivity multiplier
+* Optional smoothing (low-pass filter)
+
+6. Code:
+
+* Provide JavaScript code using DeviceOrientation API
+* Keep it clean and modular
+
+7. Explanation:
+
+* Explain sensor offset
+* Explain calibration logic
+* Explain dead zone importance
+
+Goal:
+Steering should feel centered and natural without needing manual correction.
+
+---
+
+## Part 2: Customizable HUD Controls
+
+Requirements:
+
+1. Draggable Buttons:
+
+* Buttons can be dragged anywhere on screen
+* Use touchstart, touchmove, touchend events
+* Movement should be smooth and responsive
+
+2. Edit Mode:
+
+* Toggle Edit Mode ON/OFF
+* ON → drag buttons
+* OFF → buttons function normally
+
+3. Save Layout:
+
+* Store button positions in localStorage
+* Restore positions on reload
+
+4. UI Behavior:
+
+* Show outline or highlight while dragging
+* Prevent buttons from going off-screen
+* Support multiple buttons (Nitro, Brake, Drift)
+
+5. Responsive Design:
+
+* Work across different screen sizes
+* Maintain relative layout
+
+6. Code:
+
+* Provide HTML, CSS, and JavaScript
+* Modular and reusable structure
+
+7. Bonus Features (optional):
+
+* Resize buttons
+* Adjust opacity
+* Reset layout button
+
+Goal:
+Create a flexible, professional mobile gaming HUD where controls can be customized freely like real racing games.
+
+---
+
+## Final Goal
+
+Combine tilt steering (with calibration) and customizable HUD controls to create a smooth, responsive, and realistic mobile controller experience.
