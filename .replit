@@ -11,6 +11,27 @@ env = { "CI" = "true" }
 [workflows]
 runButton = "Project"
 
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Tilt2PC"
+
+[[workflows.workflow]]
+name = "Tilt2PC"
+author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "PORT=20116 pnpm --filter @workspace/tilt2pc run dev"
+waitForPort = 20116
+
 [agent]
 stack = "PNPM_WORKSPACE"
 expertMode = true
