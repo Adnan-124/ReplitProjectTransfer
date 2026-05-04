@@ -1,29 +1,20 @@
 /**
- * NitroButton — Reliable tap-delta nitro system with per-car timing.
+ * NitroButton — Tap-delta nitro system with long-press shockwave.
  *
- * How it works:
- *   Every tap measures the delta since the previous tap:
+ * SHORT PRESS (< 600 ms hold) — tap-delta classification:
+ *   delta = time between current pressIn and previous pressIn
+ *   delta < 120 ms        → Orange   (ultra-fast double tap)
+ *   delta < perfectWindow → Perfect  (second tap in blue zone)
+ *   else                  → Yellow   (single tap / slow second tap)
  *
- *     delta = now - lastTapTime
- *     delta < ORANGE_THRESHOLD  → Orange Nitro  (rapid double tap, ~<120 ms)
- *     delta < perfectWindow     → Perfect Nitro (second tap within car window)
- *     else                      → Yellow Nitro  (first tap / slow second tap)
+ * LONG PRESS (≥ 600 ms hold) → Shockwave (activated when nitro bar is full)
  *
- * Why Pressable + onPressIn instead of TouchableOpacity + onPress?
- *   - onPressIn fires on finger-DOWN, not finger-UP (~80-120 ms earlier).
- *   - TouchableOpacity swallows rapid second taps on Android; Pressable does not.
- *   - Result: near-zero missed inputs even at 120+ ms round-trip Wi-Fi latency.
- *
- * Per-car timing (why it matters):
- *   Slow cars have long nitro animations → generous perfect window.
- *   Hypercars animate faster → the blue zone is tiny. Using one global window
- *   makes slow cars feel impossible and fast cars feel trivially easy.
- *   Setting perfectWindow per car matches the in-game blue zone duration.
- *
- * NitroType guide:
- *   yellow  — standard nitro burst (single tap)
- *   perfect — activated in the timing window (cyan flash)
- *   orange  — ultra-fast double tap (<120 ms), triggers orange boost in-game
+ * Per-car timing:
+ *   C/D class  → 500 ms  (easy)
+ *   B class    → 380 ms
+ *   A class    → 300 ms  (default)
+ *   S class    → 220 ms
+ *   S+ Hypercar → 150 ms (tight)
  */
 
 import * as Haptics from 'expo-haptics';
@@ -38,32 +29,33 @@ import {
   View,
 } from 'react-native';
 
-export type NitroType = 'yellow' | 'perfect' | 'orange';
+export type NitroType = 'yellow' | 'perfect' | 'orange' | 'shockwave';
 
-/** ms — taps faster than this are classified as orange (rapid double tap) */
+/** ms — taps faster than this → orange */
 const ORANGE_THRESHOLD = 120;
 
-/** ms — how long to display the result badge before resetting */
+/** ms — hold longer than this → shockwave */
+const SHOCKWAVE_HOLD_MS = 600;
+
+/** ms — how long to show the result badge */
 const DISPLAY_MS = 900;
 
-type Visual = 'idle' | NitroType;
+type Visual = 'idle' | 'charging' | NitroType;
 
 const PALETTE: Record<Visual, { border: string; bg: string; label: string; hint: string }> = {
-  idle:    { border: '#fbbf24', bg: '#120d00', label: 'NITRO',     hint: 'tap = yellow' },
-  yellow:  { border: '#f59e0b', bg: '#1f1400', label: 'YELLOW ⚡',  hint: 'yellow nitro!' },
-  perfect: { border: '#06b6d4', bg: '#001822', label: 'PERFECT!',  hint: '✦ perfect nitro ✦' },
-  orange:  { border: '#f97316', bg: '#1a0800', label: 'ORANGE 🔥', hint: 'orange nitro!' },
+  idle:      { border: '#fbbf24', bg: '#120d00',  label: 'NITRO',        hint: 'tap · hold for ⚡⚡' },
+  charging:  { border: '#a855f7', bg: '#0d0020',  label: 'HOLD…',        hint: 'release for shockwave' },
+  yellow:    { border: '#f59e0b', bg: '#1f1400',  label: 'YELLOW ⚡',     hint: 'yellow nitro!' },
+  perfect:   { border: '#06b6d4', bg: '#001822',  label: 'PERFECT!',     hint: '✦ perfect nitro ✦' },
+  orange:    { border: '#f97316', bg: '#1a0800',  label: 'ORANGE 🔥',    hint: 'orange nitro!' },
+  shockwave: { border: '#a855f7', bg: '#0d0020',  label: 'SHOCKWAVE ⚡⚡', hint: 'shockwave nitro!' },
 };
 
 interface NitroButtonProps {
   onNitro: (type: NitroType) => void;
   borderColor?: string;
   backgroundColor?: string;
-  /**
-   * ms — second tap within this window triggers Perfect Nitro.
-   * Per-car: slow cars ~500 ms, hypercars ~150 ms.
-   * Default 300 ms (A class).
-   */
+  /** ms — second tap within this window = Perfect. Per-car, default 300 ms (A class). */
   perfectWindow?: number;
 }
 
@@ -73,11 +65,13 @@ export function NitroButton({
 }: NitroButtonProps) {
   const [visual, setVisual] = useState<Visual>('idle');
 
-  const lastTapRef    = useRef<number>(0);
-  const resetTimer    = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const btnScale      = useRef(new Animated.Value(1)).current;
-  const ringScale     = useRef(new Animated.Value(1)).current;
-  const ringOpacity   = useRef(new Animated.Value(0)).current;
+  const lastTapRef        = useRef<number>(0);
+  const pressStartRef     = useRef<number>(0);
+  const shockwaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const displayTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const btnScale          = useRef(new Animated.Value(1)).current;
+  const ringScale         = useRef(new Animated.Value(1)).current;
+  const ringOpacity       = useRef(new Animated.Value(0)).current;
 
   const haptic = (style: Haptics.ImpactFeedbackStyle) => {
     if (Platform.OS !== 'web') Haptics.impactAsync(style).catch(() => {});
@@ -85,67 +79,38 @@ export function NitroButton({
 
   const showFeedback = (type: NitroType) => {
     setVisual(type);
+    if (displayTimerRef.current) clearTimeout(displayTimerRef.current);
+    displayTimerRef.current = setTimeout(() => setVisual('idle'), DISPLAY_MS);
 
-    if (resetTimer.current) clearTimeout(resetTimer.current);
-    resetTimer.current = setTimeout(() => setVisual('idle'), DISPLAY_MS);
-
-    const scaleTarget = type === 'perfect' || type === 'orange' ? 1.10 : 0.88;
+    const scaleTarget = type === 'perfect' || type === 'orange' || type === 'shockwave' ? 1.12 : 0.88;
     Animated.sequence([
-      Animated.timing(btnScale, {
-        toValue: scaleTarget,
-        duration: 55,
-        useNativeDriver: true,
-      }),
-      Animated.spring(btnScale, {
-        toValue: 1,
-        useNativeDriver: true,
-        speed: 70,
-        bounciness: 8,
-      }),
+      Animated.timing(btnScale, { toValue: scaleTarget, duration: 55, useNativeDriver: true }),
+      Animated.spring(btnScale, { toValue: 1, useNativeDriver: true, speed: 70, bounciness: 8 }),
     ]).start();
 
     ringScale.setValue(1);
-    ringOpacity.setValue(type === 'perfect' ? 1 : 0.75);
+    const ringOpVal = type === 'perfect' ? 1 : type === 'shockwave' ? 1 : 0.75;
+    ringOpacity.setValue(ringOpVal);
     Animated.parallel([
       Animated.timing(ringScale, {
-        toValue: type === 'perfect' ? 2.4 : 1.8,
-        duration: type === 'perfect' ? 500 : 380,
+        toValue: type === 'perfect' ? 2.6 : type === 'shockwave' ? 3.0 : 1.8,
+        duration: type === 'perfect' ? 550 : type === 'shockwave' ? 700 : 380,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
       Animated.timing(ringOpacity, {
         toValue: 0,
-        duration: type === 'perfect' ? 500 : 380,
+        duration: type === 'perfect' ? 550 : type === 'shockwave' ? 700 : 380,
         useNativeDriver: true,
       }),
     ]).start();
   };
 
-  /**
-   * Core tap handler — fires on finger-DOWN (onPressIn) for minimum latency.
-   * Also wired to onPress as a web fallback; the dedup guard prevents double-fire.
-   *
-   * Timeline example (A class, perfectWindow=300 ms):
-   *   t=0    tap 1 → delta=∞  → Yellow
-   *   t=80   tap 2 → delta=80  → Orange  (< 120 ms)
-   *   t=500  tap 1 → delta=∞  → Yellow
-   *   t=720  tap 2 → delta=220 → Perfect (< 300 ms)
-   *   t=1200 tap 1 → delta=∞  → Yellow
-   *   t=1900 tap 2 → delta=700 → Yellow  (≥ 300 ms, new cycle)
-   */
-  const lastFiredRef = useRef<number>(0);
-
-  const fire = () => {
-    const now = Date.now();
-
-    // Dedup: if already fired within 80ms (onPressIn fired and onPress also fires), skip
-    if (now - lastFiredRef.current < 80) return;
-    lastFiredRef.current = now;
-
+  const fireTap = (pressStartTime: number) => {
     const prevTap = lastTapRef.current;
-    lastTapRef.current = now;
+    lastTapRef.current = pressStartTime;
 
-    const delta = prevTap === 0 ? Infinity : now - prevTap;
+    const delta = prevTap === 0 ? Infinity : pressStartTime - prevTap;
 
     let type: NitroType;
     if (delta < ORANGE_THRESHOLD) {
@@ -174,7 +139,45 @@ export function NitroButton({
     }
   };
 
-  useEffect(() => () => { if (resetTimer.current) clearTimeout(resetTimer.current); }, []);
+  const fireShockwave = () => {
+    onNitro('shockwave');
+    showFeedback('shockwave');
+    haptic(Haptics.ImpactFeedbackStyle.Heavy);
+    if (Platform.OS !== 'web') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    }
+    // Reset tap delta so next tap is treated as fresh yellow
+    lastTapRef.current = 0;
+  };
+
+  const handlePressIn = () => {
+    const now = Date.now();
+    pressStartRef.current = now;
+
+    // Show charging state after 200 ms so user gets feedback that hold is registering
+    setVisual('charging');
+
+    // After SHOCKWAVE_HOLD_MS, fire shockwave
+    shockwaveTimerRef.current = setTimeout(() => {
+      shockwaveTimerRef.current = null;
+      fireShockwave();
+    }, SHOCKWAVE_HOLD_MS);
+  };
+
+  const handlePressOut = () => {
+    if (shockwaveTimerRef.current) {
+      // Held < SHOCKWAVE_HOLD_MS → short tap
+      clearTimeout(shockwaveTimerRef.current);
+      shockwaveTimerRef.current = null;
+      fireTap(pressStartRef.current);
+    }
+    // If timer already fired → shockwave already dispatched, nothing to do
+  };
+
+  useEffect(() => () => {
+    if (shockwaveTimerRef.current) clearTimeout(shockwaveTimerRef.current);
+    if (displayTimerRef.current)   clearTimeout(displayTimerRef.current);
+  }, []);
 
   const pal = PALETTE[visual];
 
@@ -193,11 +196,11 @@ export function NitroButton({
         ]}
       />
 
-      {/* Main button — onPressIn fires on finger-DOWN (instant); onPress is web fallback */}
+      {/* Main button */}
       <Animated.View style={{ transform: [{ scale: btnScale }] }}>
         <TouchableOpacity
-          onPressIn={fire}
-          onPress={fire}
+          onPressIn={handlePressIn}
+          onPressOut={handlePressOut}
           activeOpacity={0.82}
           style={[
             styles.button,
@@ -207,7 +210,12 @@ export function NitroButton({
               shadowColor: pal.border,
               shadowOffset: { width: 0, height: 0 },
               shadowOpacity: visual === 'idle' ? 0.18 : 0.90,
-              shadowRadius: visual === 'perfect' ? 22 : visual === 'orange' ? 18 : visual === 'yellow' ? 12 : 4,
+              shadowRadius:
+                visual === 'perfect'   ? 22
+                : visual === 'shockwave' ? 28
+                : visual === 'orange'   ? 18
+                : visual === 'yellow'   ? 12
+                : visual === 'charging' ? 10 : 4,
               elevation: visual === 'idle' ? 2 : 10,
             },
           ]}
@@ -217,25 +225,20 @@ export function NitroButton({
         </TouchableOpacity>
       </Animated.View>
 
-      {/* Window size bar (visible in idle so user knows their timing) */}
+      {/* Window size bar */}
       <View style={styles.barTrack}>
-        {visual === 'idle' ? (
+        {visual === 'idle' || visual === 'charging' ? (
           <View
             style={[
               styles.barFill,
               {
-                width: `${Math.min(100, Math.round((perfectWindow / 600) * 100))}%`,
-                backgroundColor: '#3b82f666',
+                width: visual === 'charging' ? '100%' : `${Math.min(100, Math.round((perfectWindow / 600) * 100))}%`,
+                backgroundColor: visual === 'charging' ? '#a855f799' : '#3b82f666',
               },
             ]}
           />
         ) : (
-          <View
-            style={[
-              styles.barFill,
-              { width: '100%', backgroundColor: pal.border + '99' },
-            ]}
-          />
+          <View style={[styles.barFill, { width: '100%', backgroundColor: pal.border + '99' }]} />
         )}
       </View>
 

@@ -210,17 +210,21 @@ export default function ControlScreen() {
           <View style={styles.nitroLegend}>
             <View style={styles.legendRow}>
               <View style={[styles.legendDot, { backgroundColor: '#f59e0b' }]} />
-              <Text style={[styles.legendText, { color: colors.mutedForeground }]}>single tap = yellow</Text>
+              <Text style={[styles.legendText, { color: colors.mutedForeground }]}>tap = yellow</Text>
             </View>
             <View style={styles.legendRow}>
               <View style={[styles.legendDot, { backgroundColor: '#06b6d4' }]} />
               <Text style={[styles.legendText, { color: colors.mutedForeground }]}>
-                &lt;{carProfile.perfectWindow}ms = perfect
+                2nd tap &lt;{carProfile.perfectWindow}ms = perfect
               </Text>
             </View>
             <View style={styles.legendRow}>
               <View style={[styles.legendDot, { backgroundColor: '#f97316' }]} />
-              <Text style={[styles.legendText, { color: colors.mutedForeground }]}>&lt;120ms = orange</Text>
+              <Text style={[styles.legendText, { color: colors.mutedForeground }]}>2nd tap &lt;120ms = orange</Text>
+            </View>
+            <View style={styles.legendRow}>
+              <View style={[styles.legendDot, { backgroundColor: '#a855f7' }]} />
+              <Text style={[styles.legendText, { color: colors.mutedForeground }]}>hold 0.6s = shockwave</Text>
             </View>
           </View>
         </View>

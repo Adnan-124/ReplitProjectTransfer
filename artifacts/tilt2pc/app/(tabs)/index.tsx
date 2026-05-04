@@ -43,7 +43,6 @@ export default function PairingScreen() {
   };
 
   const handleGoControl = () => {
-    if (!isConnected) return;
     router.push('/(tabs)/control');
   };
 
@@ -171,17 +170,23 @@ export default function PairingScreen() {
           </Text>
         </TouchableOpacity>
 
-        {/* Drive Button */}
-        {isConnected && (
-          <TouchableOpacity
-            style={[styles.driveButton, { backgroundColor: colors.accent, borderColor: colors.accent }]}
-            onPress={handleGoControl}
-            activeOpacity={0.8}
-          >
-            <Feather name="navigation-2" size={20} color="#fff" />
-            <Text style={styles.driveButtonText}>START DRIVING</Text>
-          </TouchableOpacity>
-        )}
+        {/* Drive Button — always visible; shows offline state if not connected */}
+        <TouchableOpacity
+          style={[
+            styles.driveButton,
+            {
+              backgroundColor: isConnected ? colors.accent : colors.card,
+              borderColor: isConnected ? colors.accent : colors.border,
+            },
+          ]}
+          onPress={handleGoControl}
+          activeOpacity={0.8}
+        >
+          <Feather name="navigation-2" size={20} color={isConnected ? '#fff' : colors.mutedForeground} />
+          <Text style={[styles.driveButtonText, { color: isConnected ? '#fff' : colors.mutedForeground }]}>
+            {isConnected ? 'START DRIVING' : 'OPEN CONTROLS'}
+          </Text>
+        </TouchableOpacity>
 
         {/* Quick Actions */}
         <View style={styles.quickActions}>

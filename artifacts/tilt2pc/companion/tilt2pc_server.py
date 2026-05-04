@@ -24,7 +24,7 @@ Edit the KEY_MAP dict below to change any mapping.
 NITRO SYSTEM (Asphalt 9 mechanics)
 ──────────────────────────────────────────────────────────────────
 
-The app sends  { "type": "nitro", "nitroType": "yellow"|"perfect"|"orange" }
+The app sends  { "type": "nitro", "nitroType": "yellow"|"perfect"|"orange"|"shockwave" }
 
 Nitro type is determined ENTIRELY on the phone using tap-delta timing:
 
@@ -110,6 +110,8 @@ PERFECT_HOLD  = 3.50    # How long to hold Space after perfect re-press
 ORANGE_HOLD   = 0.04    # Hold duration for each tap in orange double-tap
 ORANGE_GAP    = 0.04    # Gap between the two orange taps
 
+SHOCKWAVE_HOLD = 1.50   # How long to hold Space for shockwave (nitro bar full)
+
 # ─── State ────────────────────────────────────────────────────────────────────
 
 keyboard = Controller()
@@ -189,6 +191,7 @@ async def handle_button(data: dict):
 #  yellow      │ Single tap (delta ≥ perfectWindow) │ Single Space tap (80 ms)
 #  perfect     │ Second tap in timing window        │ Space → PERFECT_GAP → re-press
 #  orange      │ Ultra-fast second tap (< 120 ms)   │ Two rapid Space taps (no gap)
+#  shockwave   │ Long press (≥ 600 ms hold)         │ Space held for SHOCKWAVE_HOLD
 #
 
 async def _run_nitro(nitro_type: str):
@@ -220,7 +223,6 @@ async def _run_nitro(nitro_type: str):
 
         elif nitro_type == "orange":
             # ── Orange: two rapid taps with virtually no gap ─────────────
-            # Simulates the phone's ultra-fast double tap (<120 ms)
             _press(nitro_key)
             await asyncio.sleep(ORANGE_HOLD)
             _release(nitro_key)
@@ -231,6 +233,13 @@ async def _run_nitro(nitro_type: str):
             await asyncio.sleep(ORANGE_HOLD)
             _release(nitro_key)
             print(f"  [NITRO] Orange  — double tap ({(ORANGE_HOLD+ORANGE_GAP)*1000:.0f} ms total)")
+
+        elif nitro_type == "shockwave":
+            # ── Shockwave: hold Space (activated when nitro bar is full) ──
+            _press(nitro_key)
+            await asyncio.sleep(SHOCKWAVE_HOLD)
+            _release(nitro_key)
+            print(f"  [NITRO] Shockwave — hold {SHOCKWAVE_HOLD:.1f}s")
 
         else:
             print(f"  [NITRO] Unknown type: {nitro_type!r}")
@@ -354,6 +363,7 @@ async def main():
     print(f"    Yellow  → single Space tap  ({YELLOW_HOLD*1000:.0f} ms hold)")
     print(f"    Perfect → Space, {PERFECT_GAP*1000:.0f} ms gap, re-press ({PERFECT_HOLD:.1f}s hold)")
     print(f"    Orange  → two rapid taps ({(ORANGE_HOLD+ORANGE_GAP)*1000:.0f} ms total)")
+    print(f"    Shockwave → hold Space {SHOCKWAVE_HOLD:.1f}s (when nitro bar is full)")
     print()
     print("  Per-car perfect windows (set in app Settings):")
     print("    C/D class   → 500 ms  (easy)")
