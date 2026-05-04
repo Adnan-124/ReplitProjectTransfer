@@ -13,12 +13,13 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ControlButton } from '@/components/ControlButton';
 import { DiagnosticsOverlay } from '@/components/DiagnosticsOverlay';
+import { NitroButton, type NitroType } from '@/components/NitroButton';
 import { SteeringBar } from '@/components/SteeringBar';
 import { useApp } from '@/context/AppContext';
 import { useColors } from '@/hooks/useColors';
 import { useTilt } from '@/hooks/useTilt';
 
-type ButtonId = 'NITRO' | 'DRIFT' | 'BRAKE' | 'CAMERA' | 'SHOCKWAVE' | 'MENU' | 'EXTRA1';
+type ButtonId = 'DRIFT' | 'BRAKE' | 'CAMERA' | 'SHOCKWAVE' | 'MENU';
 
 export default function ControlScreen() {
   const colors = useColors();
@@ -46,9 +47,18 @@ export default function ControlScreen() {
   );
 
   const btn = useCallback(
-    (id: ButtonId, action: 'down' | 'up' | 'click' | 'double' | 'long') => {
+    (id: ButtonId, action: 'down' | 'up' | 'click') => {
       sendMessage({ type: 'button', ts: Date.now(), id, action });
       setLastEvent(`${id}:${action}`);
+    },
+    [sendMessage, setLastEvent],
+  );
+
+  // Called by NitroButton when a nitro type is determined
+  const handleNitro = useCallback(
+    (nitroType: NitroType) => {
+      sendMessage({ type: 'nitro', ts: Date.now(), nitroType });
+      setLastEvent(`NITRO:${nitroType}`);
     },
     [sendMessage, setLastEvent],
   );
@@ -126,7 +136,7 @@ export default function ControlScreen() {
         </View>
       )}
 
-      {/* ── MAIN BODY (landscape row) ──────────────────────── */}
+      {/* ── MAIN BODY ──────────────────────────────────────── */}
       <View style={[styles.body, { paddingLeft: lPad, paddingRight: rPad }]}>
 
         {/* LEFT PAD — left thumb */}
@@ -166,19 +176,34 @@ export default function ControlScreen() {
               TILT TO STEER
             </Text>
           </View>
+
+          {/* Nitro legend */}
+          <View style={styles.nitroLegend}>
+            <View style={styles.legendRow}>
+              <View style={[styles.legendDot, { backgroundColor: '#f59e0b' }]} />
+              <Text style={[styles.legendText, { color: colors.mutedForeground }]}>
+                tap = yellow nitro
+              </Text>
+            </View>
+            <View style={styles.legendRow}>
+              <View style={[styles.legendDot, { backgroundColor: '#3b82f6' }]} />
+              <Text style={[styles.legendText, { color: colors.mutedForeground }]}>
+                tap again in window = perfect
+              </Text>
+            </View>
+          </View>
         </View>
 
         {/* RIGHT PAD — right thumb */}
         <View style={styles.rightPad}>
-          <ControlButton
-            label="NITRO"
-            color={colors.nitro}
-            size="large"
-            onDown={() => btn('NITRO', 'down')}
-            onUp={() => btn('NITRO', 'up')}
-            onPress={() => btn('NITRO', 'click')}
-            onDoubleTap={() => btn('NITRO', 'double')}
+          {/* Nitro button with state machine */}
+          <NitroButton
+            onNitro={handleNitro}
+            borderColor={colors.nitro}
+            backgroundColor={colors.background}
           />
+
+          {/* DRIFT + BRAKE row */}
           <View style={styles.rightRow}>
             <ControlButton
               label="DRIFT"
@@ -267,7 +292,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 14,
+    gap: 12,
   },
   tiltHint: {
     alignItems: 'center',
@@ -278,13 +303,33 @@ const styles = StyleSheet.create({
     letterSpacing: 2.5,
     fontWeight: '700',
   },
+  nitroLegend: {
+    gap: 4,
+    alignItems: 'flex-start',
+  },
+  legendRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  legendDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  legendText: {
+    fontSize: 9,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+  },
 
   rightPad: {
-    width: 200,
+    width: 210,
     alignItems: 'center',
     justifyContent: 'space-evenly',
     alignSelf: 'stretch',
     gap: 8,
+    paddingVertical: 4,
   },
   rightRow: {
     flexDirection: 'row',
