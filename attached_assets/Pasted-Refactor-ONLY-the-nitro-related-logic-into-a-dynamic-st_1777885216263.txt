@@ -1,0 +1,115 @@
+Refactor ONLY the nitro-related logic into a dynamic, state-driven system based on a simulated nitro meter. Do NOT rewrite the entire project—modify existing nitro handling functions.
+
+EXISTING PROBLEM
+
+Current implementation:
+
+Uses time delays like sleep(0.7) before triggering second tap
+Causes inconsistent perfect nitro
+Fails under latency and different car behaviors
+
+REMOVE all fixed timing-based logic.
+
+NEW IMPLEMENTATION REQUIREMENTS
+1. Create NitroController class
+
+Encapsulate all nitro logic here.
+
+Attributes:
+
+nitro_level (float, 0.0–1.0)
+is_nitro_active (bool)
+state (string: IDLE, NORMAL, WAITING_PERFECT, PERFECT, SHOCKWAVE)
+refill_rate (float)
+consumption_rate (float)
+latency_estimate (float, e.g. 0.08 seconds)
+2. Replace time delays with continuous update loop
+
+Add update(dt) method:
+
+If nitro is active:
+nitro_level -= consumption_rate * dt
+Else:
+nitro_level += refill_rate * dt
+
+Clamp between 0.0 and 1.0
+
+This function must be called every frame (≈60Hz)
+
+3. Implement nitro zones
+
+Define:
+
+NORMAL: 0.0–0.4
+PERFECT: 0.4–0.7
+SHOCKWAVE: 0.7–1.0
+
+Set:
+
+perfect_target = 0.58
+tolerance = 0.05
+4. Modify nitro button handling
+
+Replace existing nitro key logic:
+
+On first press:
+
+press_nitro_key()
+set state = NORMAL
+is_nitro_active = True
+
+On second press:
+
+DO NOT immediately tap
+set state = WAITING_PERFECT
+5. Add automatic trigger logic (CRITICAL)
+
+Inside update(dt):
+
+If state == WAITING_PERFECT:
+predicted_level = nitro_level + (consumption_rate * latency_estimate)
+
+If predicted_level is within (perfect_target ± tolerance):
+    perform tap:
+        release_nitro_key()
+        press_nitro_key()
+    set state = PERFECT
+6. Shockwave logic
+
+If nitro_level >= 0.8 and user taps again:
+perform rapid double tap
+set state = SHOCKWAVE
+
+7. Remove ALL sleep() calls related to nitro
+
+The system must be fully non-blocking and frame-driven.
+
+8. Keep existing networking and input system
+Do NOT change socket logic
+Do NOT change steering logic
+Only replace nitro timing internals
+9. Add debug logging
+
+Print:
+
+nitro_level (rounded)
+current state
+when taps are triggered
+10. Maintain compatibility
+
+Ensure:
+
+Existing key press functions still work
+Nitro still activates on first press
+Only timing logic changes
+OUTPUT FORMAT
+Show modified sections clearly
+Provide full NitroController class
+Show how to integrate into existing main loop
+GOAL
+
+Make nitro activation feel consistent and accurate like Asphalt 9 by using:
+
+simulated nitro meter
+state machine
+prediction instead of timing delays

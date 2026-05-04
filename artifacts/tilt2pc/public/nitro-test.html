@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Tilt2PC — Nitro Test</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --yellow: #f59e0b;
+      --perfect: #06b6d4;
+      --orange: #f97316;
+      --shockwave: #a855f7;
+      --bg: #0a0a0f;
+      --card: #111118;
+      --border: #1e1e2e;
+      --text: #e0e0f0;
+      --muted: #555570;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      touch-action: none;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    h1 {
+      font-size: 11px;
+      letter-spacing: 4px;
+      color: var(--muted);
+      margin-bottom: 32px;
+      text-transform: uppercase;
+    }
+
+    /* ── Nitro button ─────────────────────────────────────────── */
+    #nitro-btn {
+      width: 150px;
+      height: 150px;
+      border-radius: 26px;
+      border: 3px solid var(--yellow);
+      background: #120d00;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      cursor: pointer;
+      transition: border-color 0.08s, background 0.08s, box-shadow 0.08s;
+      box-shadow: 0 0 8px var(--yellow);
+      position: relative;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    #nitro-btn .icon  { font-size: 32px; line-height: 1; }
+    #nitro-btn .label { font-size: 12px; font-weight: 900; letter-spacing: 2px; color: var(--yellow); }
+    #nitro-btn .sub   { font-size: 8px; font-weight: 700; letter-spacing: 1px; color: var(--yellow); opacity: 0.7; margin-top: 2px; }
+
+    #nitro-btn.charging  { border-color: var(--shockwave); background: #0d0020; box-shadow: 0 0 18px var(--shockwave); }
+    #nitro-btn.yellow    { border-color: var(--yellow);    background: #1f1400; box-shadow: 0 0 24px var(--yellow); }
+    #nitro-btn.perfect   { border-color: var(--perfect);   background: #001822; box-shadow: 0 0 36px var(--perfect); }
+    #nitro-btn.orange    { border-color: var(--orange);    background: #1a0800; box-shadow: 0 0 28px var(--orange); }
+    #nitro-btn.shockwave { border-color: var(--shockwave); background: #0d0020; box-shadow: 0 0 48px var(--shockwave); }
+
+    #nitro-btn.charging  .label, #nitro-btn.charging  .sub   { color: var(--shockwave); }
+    #nitro-btn.yellow    .label, #nitro-btn.yellow    .sub   { color: var(--yellow); }
+    #nitro-btn.perfect   .label, #nitro-btn.perfect   .sub   { color: var(--perfect); }
+    #nitro-btn.orange    .label, #nitro-btn.orange    .sub   { color: var(--orange); }
+    #nitro-btn.shockwave .label, #nitro-btn.shockwave .sub   { color: var(--shockwave); }
+
+    /* Ring burst animation */
+    @keyframes ring-burst {
+      from { transform: scale(1);   opacity: 0.8; }
+      to   { transform: scale(2.5); opacity: 0; }
+    }
+
+    .ring {
+      position: absolute;
+      inset: -6px;
+      border-radius: 32px;
+      border: 3px solid currentColor;
+      animation: ring-burst 0.5s ease-out forwards;
+      pointer-events: none;
+    }
+
+    /* ── Timing bar ───────────────────────────────────────────── */
+    #bar-track {
+      width: 150px;
+      height: 5px;
+      border-radius: 3px;
+      background: #ffffff14;
+      margin-top: 8px;
+      overflow: hidden;
+    }
+    #bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      background: #3b82f666;
+      width: 50%;
+      transition: width 0.15s, background 0.1s;
+    }
+
+    /* ── Status / last result ─────────────────────────────────── */
+    #status {
+      margin-top: 12px;
+      font-size: 9px;
+      letter-spacing: 2px;
+      color: var(--muted);
+      height: 16px;
+    }
+
+    /* ── Legend ───────────────────────────────────────────────── */
+    #legend {
+      margin-top: 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .legend-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: 0.5px;
+    }
+    .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    /* ── Server connect ───────────────────────────────────────── */
+    #server-row {
+      margin-top: 32px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    #server-row input {
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 10px;
+      border-radius: 8px;
+      font-size: 12px;
+      width: 160px;
+      outline: none;
+    }
+    #server-row button {
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    #server-row button:hover { background: #1e1e2e; }
+
+    #ws-status {
+      margin-top: 8px;
+      font-size: 9px;
+      letter-spacing: 1.5px;
+    }
+    #ws-status.ok  { color: #22c55e; }
+    #ws-status.err { color: #ef4444; }
+  </style>
+</head>
+<body>
+  <h1>TILT2PC · NITRO TEST</h1>
+
+  <button id="nitro-btn" tabindex="0">
+    <span class="icon">⚡</span>
+    <span class="label" id="btn-label">NITRO</span>
+    <span class="sub"  id="btn-sub">tap · hold=shockwave</span>
+  </button>
+
+  <div id="bar-track"><div id="bar-fill"></div></div>
+  <div id="status">–</div>
+
+  <div id="legend">
+    <div class="legend-row"><div class="dot" style="background:var(--yellow)"></div>single tap = YELLOW</div>
+    <div class="legend-row"><div class="dot" style="background:var(--perfect)"></div>2nd tap &lt;<span id="pw-label">300</span> ms = PERFECT</div>
+    <div class="legend-row"><div class="dot" style="background:var(--orange)"></div>2nd tap &lt;120 ms = ORANGE</div>
+    <div class="legend-row"><div class="dot" style="background:var(--shockwave)"></div>hold ≥ 600 ms = SHOCKWAVE</div>
+  </div>
+
+  <div id="server-row">
+    <input id="server-ip" type="text" placeholder="192.168.1.100:3333" value="192.168.1.100:3333" />
+    <button id="connect-btn">Connect</button>
+  </div>
+  <div id="ws-status">not connected</div>
+
+  <script>
+    // ── Config ────────────────────────────────────────────────────
+    const ORANGE_THRESHOLD  = 120;   // ms
+    const SHOCKWAVE_HOLD_MS = 600;   // ms
+    const DISPLAY_MS        = 900;   // ms — result badge display time
+    let   perfectWindow     = 300;   // ms — matches A class default
+
+    // ── State ─────────────────────────────────────────────────────
+    let lastTapTime     = 0;
+    let pressStart      = 0;
+    let shockwaveTimer  = null;
+    let displayTimer    = null;
+    let ws              = null;
+
+    // ── DOM refs ──────────────────────────────────────────────────
+    const btn      = document.getElementById('nitro-btn');
+    const labelEl  = document.getElementById('btn-label');
+    const subEl    = document.getElementById('btn-sub');
+    const statusEl = document.getElementById('status');
+    const barFill  = document.getElementById('bar-fill');
+    const pwLabel  = document.getElementById('pw-label');
+
+    // ── Visual ────────────────────────────────────────────────────
+    const STATES = {
+      idle:      { cls: '',          label: 'NITRO',          sub: 'tap · hold=shockwave',   bar: `${Math.round((perfectWindow/600)*100)}%`, barBg: '#3b82f666' },
+      charging:  { cls: 'charging',  label: 'HOLD…',          sub: 'release = shockwave',    bar: '100%',                                    barBg: '#a855f799' },
+      yellow:    { cls: 'yellow',    label: 'YELLOW ⚡',       sub: 'yellow nitro!',          bar: '100%',                                    barBg: '#f59e0baa' },
+      perfect:   { cls: 'perfect',   label: 'PERFECT!',       sub: '✦ perfect nitro ✦',      bar: '100%',                                    barBg: '#06b6d4aa' },
+      orange:    { cls: 'orange',    label: 'ORANGE 🔥',      sub: 'orange nitro!',          bar: '100%',                                    barBg: '#f97316aa' },
+      shockwave: { cls: 'shockwave', label: 'SHOCKWAVE ⚡⚡',  sub: 'shockwave nitro!',       bar: '100%',                                    barBg: '#a855f7aa' },
+    };
+
+    function setVisual(state) {
+      const s = STATES[state] || STATES.idle;
+      btn.className = s.cls;
+      labelEl.textContent = s.label;
+      subEl.textContent   = s.sub;
+      barFill.style.width      = state === 'idle' ? `${Math.round((perfectWindow/600)*100)}%` : s.bar;
+      barFill.style.background = s.barBg;
+    }
+
+    function spawnRing() {
+      const ring = document.createElement('div');
+      ring.className = 'ring';
+      btn.appendChild(ring);
+      ring.addEventListener('animationend', () => ring.remove());
+    }
+
+    function showResult(type) {
+      setVisual(type);
+      spawnRing();
+      statusEl.textContent = `→ ${type.toUpperCase()} nitro`;
+      if (displayTimer) clearTimeout(displayTimer);
+      displayTimer = setTimeout(() => { setVisual('idle'); statusEl.textContent = '–'; }, DISPLAY_MS);
+    }
+
+    // ── Nitro logic ───────────────────────────────────────────────
+    function fireTap(t) {
+      const prev  = lastTapTime;
+      lastTapTime = t;
+      const delta = prev === 0 ? Infinity : t - prev;
+
+      let type;
+      if      (delta < ORANGE_THRESHOLD) type = 'orange';
+      else if (delta < perfectWindow)    type = 'perfect';
+      else                               type = 'yellow';
+
+      showResult(type);
+      sendNitro(type);
+    }
+
+    function fireShockwave() {
+      lastTapTime = 0;
+      showResult('shockwave');
+      sendNitro('shockwave');
+    }
+
+    // ── Press in / out ────────────────────────────────────────────
+    function onDown(e) {
+      e.preventDefault();
+      pressStart = Date.now();
+      setVisual('charging');
+
+      if (shockwaveTimer) clearTimeout(shockwaveTimer);
+      shockwaveTimer = setTimeout(() => {
+        shockwaveTimer = null;
+        fireShockwave();
+      }, SHOCKWAVE_HOLD_MS);
+    }
+
+    function onUp(e) {
+      e.preventDefault();
+      if (shockwaveTimer) {
+        clearTimeout(shockwaveTimer);
+        shockwaveTimer = null;
+        fireTap(pressStart);
+      }
+      // If timer already fired → shockwave was dispatched
+    }
+
+    // ── Attach DOM events ─────────────────────────────────────────
+    btn.addEventListener('mousedown',  onDown);
+    btn.addEventListener('mouseup',    onUp);
+    btn.addEventListener('touchstart', onDown, { passive: false });
+    btn.addEventListener('touchend',   onUp,   { passive: false });
+    btn.addEventListener('mouseleave', () => {
+      // Cancel if mouse leaves without releasing
+      if (shockwaveTimer) { clearTimeout(shockwaveTimer); shockwaveTimer = null; }
+    });
+
+    // Keyboard support (Space / Enter)
+    btn.addEventListener('keydown', (e) => { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) onDown(e); });
+    btn.addEventListener('keyup',   (e) => { if (e.key === ' ' || e.key === 'Enter')                 onUp(e); });
+
+    // ── WebSocket ─────────────────────────────────────────────────
+    const wsStatusEl  = document.getElementById('ws-status');
+    const connectBtn  = document.getElementById('connect-btn');
+    const serverInput = document.getElementById('server-ip');
+
+    function sendNitro(type) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'nitro', nitroType: type, ts: Date.now() }));
+      }
+    }
+
+    connectBtn.addEventListener('click', () => {
+      if (ws) { ws.close(); ws = null; }
+      const addr = serverInput.value.trim() || '192.168.1.100:3333';
+      wsStatusEl.className = '';
+      wsStatusEl.textContent = 'connecting…';
+      try {
+        ws = new WebSocket(`ws://${addr}`);
+        ws.onopen = () => {
+          ws.send(JSON.stringify({ type: 'config', client: 'nitro-test', ver: '1.0', pin: '' }));
+          wsStatusEl.className = 'ok';
+          wsStatusEl.textContent = `✓ connected to ${addr}`;
+        };
+        ws.onerror = () => {
+          wsStatusEl.className = 'err';
+          wsStatusEl.textContent = 'connection failed';
+        };
+        ws.onclose = () => {
+          wsStatusEl.className = '';
+          wsStatusEl.textContent = 'disconnected';
+        };
+      } catch (err) {
+        wsStatusEl.className = 'err';
+        wsStatusEl.textContent = 'invalid address';
+      }
+    });
+
+    // ── Init ──────────────────────────────────────────────────────
+    setVisual('idle');
+  </script>
+</body>
+</html>

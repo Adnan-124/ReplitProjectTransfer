@@ -33,7 +33,11 @@ export default function ControlScreen() {
   const [bodyW, setBodyW] = useState(0);
   const [bodyH, setBodyH] = useState(0);
 
-  const hud = useHUDLayout(bodyW, bodyH);
+  // Fall back to window dimensions so buttons render immediately before onLayout fires
+  const effectiveW = bodyW > 0 ? bodyW : Math.max(width, 1);
+  const effectiveH = bodyH > 0 ? bodyH : Math.max(height - 60, 1);
+
+  const hud = useHUDLayout(effectiveW, effectiveH);
 
   const isLandscape = width > height;
 
@@ -241,7 +245,7 @@ export default function ControlScreen() {
         )}
 
         {/* ── Draggable HUD buttons ─────────────────────────────── */}
-        {bodyW > 0 && (
+        {(
           <>
             {/* CAMERA */}
             {drag(
