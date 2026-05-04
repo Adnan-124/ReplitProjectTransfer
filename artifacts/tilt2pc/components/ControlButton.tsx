@@ -1,11 +1,15 @@
+import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import React, { useRef, useState } from 'react';
 import { Animated, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+
+type FeatherName = React.ComponentProps<typeof Feather>['name'];
 
 interface ControlButtonProps {
   label: string;
   color: string;
   size?: 'small' | 'medium' | 'large';
+  icon?: FeatherName;
   onDown?: () => void;
   onUp?: () => void;
   onPress?: () => void;
@@ -19,10 +23,17 @@ const DOUBLE_TAP_WINDOW = 280;
 const LONG_PRESS_DELAY = 500;
 const CONTINUOUS_INTERVAL = 80;
 
+const SIZE_CONFIG = {
+  large:  { box: 104, font: 10, icon: 22 },
+  medium: { box: 84,  font: 10, icon: 18 },
+  small:  { box: 64,  font: 9,  icon: 14 },
+};
+
 export function ControlButton({
   label,
   color,
   size = 'medium',
+  icon,
   onDown,
   onUp,
   onPress,
@@ -39,9 +50,7 @@ export function ControlButton({
   const continuousTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const haptic = (style = Haptics.ImpactFeedbackStyle.Medium) => {
-    if (Platform.OS !== 'web') {
-      Haptics.impactAsync(style).catch(() => {});
-    }
+    if (Platform.OS !== 'web') Haptics.impactAsync(style).catch(() => {});
   };
 
   const handlePressIn = () => {
@@ -50,16 +59,13 @@ export function ControlButton({
     haptic();
     Animated.spring(scaleAnim, { toValue: 0.88, useNativeDriver: true, speed: 80 }).start();
 
-    // Fire down immediately — zero delay
     onDown?.();
 
-    // Long press detection
     longPressTimerRef.current = setTimeout(() => {
       onLongPress?.();
       haptic(Haptics.ImpactFeedbackStyle.Heavy);
     }, LONG_PRESS_DELAY);
 
-    // Continuous hold mode (DRIFT, BRAKE)
     if (continuous) {
       continuousTimerRef.current = setInterval(() => onDown?.(), CONTINUOUS_INTERVAL);
     }
@@ -70,10 +76,8 @@ export function ControlButton({
     setPressed(false);
     Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, speed: 80 }).start();
 
-    // Fire up immediately — zero delay
     onUp?.();
 
-    // Clear hold timers
     if (longPressTimerRef.current) {
       clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = null;
@@ -83,18 +87,15 @@ export function ControlButton({
       continuousTimerRef.current = null;
     }
 
-    // If no double-tap handler: fire onPress IMMEDIATELY, no delay at all
     if (!onDoubleTap) {
       onPress?.();
       return;
     }
 
-    // Double-tap detection only for buttons that need it (NITRO → Shockwave)
     const now = Date.now();
     const gap = now - lastTapRef.current;
 
     if (gap < DOUBLE_TAP_WINDOW && lastTapRef.current > 0) {
-      // Double tap confirmed
       if (doubleTapTimerRef.current) {
         clearTimeout(doubleTapTimerRef.current);
         doubleTapTimerRef.current = null;
@@ -105,7 +106,6 @@ export function ControlButton({
       }
       lastTapRef.current = 0;
     } else {
-      // Wait briefly to see if second tap comes
       lastTapRef.current = now;
       doubleTapTimerRef.current = setTimeout(() => {
         onPress?.();
@@ -114,7 +114,8 @@ export function ControlButton({
     }
   };
 
-  const sizeStyle = size === 'large' ? styles.large : size === 'small' ? styles.small : styles.medium;
+  const cfg = SIZE_CONFIG[size];
+  const contentColor = pressed ? '#fff' : color;
 
   return (
     <TouchableOpacity
@@ -126,8 +127,9 @@ export function ControlButton({
       <Animated.View
         style={[
           styles.button,
-          sizeStyle,
           {
+            width: cfg.box,
+            height: cfg.box,
             backgroundColor: pressed ? color + 'ee' : color + '1a',
             borderColor: pressed ? color : color + '88',
             transform: [{ scale: scaleAnim }],
@@ -143,7 +145,12 @@ export function ControlButton({
         {pressed && (
           <View style={[StyleSheet.absoluteFill, { backgroundColor: color + '22', borderRadius: 14 }]} />
         )}
-        <Text style={[styles.label, { color: pressed ? '#fff' : color }]}>{label}</Text>
+        {icon && (
+          <Feather name={icon} size={cfg.icon} color={contentColor} style={styles.icon} />
+        )}
+        <Text style={[styles.label, { fontSize: cfg.font, color: contentColor }]}>
+          {label}
+        </Text>
         {pressed && <View style={[styles.glow, { backgroundColor: color + '44' }]} />}
       </Animated.View>
     </TouchableOpacity>
@@ -157,12 +164,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
+    gap: 3,
   },
-  small: { width: 64, height: 64 },
-  medium: { width: 84, height: 84 },
-  large: { width: 104, height: 104 },
+  icon: {
+    // slight upward nudge when shown with label
+  },
   label: {
-    fontSize: 10,
     fontWeight: '800',
     letterSpacing: 1.2,
     textAlign: 'center',

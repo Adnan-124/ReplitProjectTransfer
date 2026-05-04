@@ -1,43 +1,49 @@
 /**
- * DraggableButton — wraps any button with drag-to-reposition capability.
+ * DraggableButton — wraps any button with drag-to-reposition + resize capability.
  *
- * Behaviour:
- *   • editMode OFF  → transparent wrapper; children receive all touches normally
- *   • editMode ON   → PanResponder captures touches; button is draggable;
- *                     children rendered with pointerEvents="none" so buttons
- *                     don't fire while being repositioned
+ * Edit mode OFF  → transparent wrapper; children work normally
+ * Edit mode ON   → PanResponder captures drags; children pointerEvents="none"
+ *                  A resize strip ([-][scale][+]) appears above the button
  *
- * The animated position is driven by PanResponder during drag (JS thread,
- * useNativeDriver: false required because we affect layout).  On release the
- * final clamped position is committed back to the parent via onDrop.
+ * Scale is applied via CSS transform on the inner View. The outer Animated.View
+ * is explicitly sized at (btnW × scale, btnH × scale) so the drag footprint
+ * matches the visual footprint.
+ *
+ * NOTE: The resize [-][+] TouchableOpacity buttons have their own responders
+ * which take priority over PanResponder in the bubble phase (PanResponder uses
+ * onStartShouldSetPanResponder, not the capture variant). A small movement
+ * threshold prevents accidental dragging when tapping the resize buttons.
  */
 
 import { Feather } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useRef } from 'react';
-import { Animated, PanResponder, StyleSheet, View } from 'react-native';
+import { Animated, PanResponder, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 interface DraggableButtonProps {
-  /** Stable id — used only for debugging. */
   id: string;
-  /** Current position (can update from parent, e.g. after load from storage). */
   position: { x: number; y: number };
+  scale: number;
   editMode: boolean;
-  /** Called with the final clamped position on finger-up. */
   onDrop: (pos: { x: number; y: number }) => void;
-  /** Body container size, used for clamping. */
+  onDecreaseScale: () => void;
+  onIncreaseScale: () => void;
   bodyW: number;
   bodyH: number;
-  /** Bounding box of the button, used for clamping. */
   btnW: number;
   btnH: number;
   children: React.ReactNode;
 }
 
+const DRAG_THRESHOLD = 5; // pixels — below this, treat as a tap (not a drag)
+
 export function DraggableButton({
   id,
   position,
+  scale,
   editMode,
   onDrop,
+  onDecreaseScale,
+  onIncreaseScale,
   bodyW,
   bodyH,
   btnW,
@@ -45,10 +51,9 @@ export function DraggableButton({
   children,
 }: DraggableButtonProps) {
   const pan = useRef(new Animated.ValueXY(position)).current;
-  // Track the committed position so we can set the offset on drag-start.
   const committed = useRef({ x: position.x, y: position.y });
 
-  // Sync when parent changes position externally (e.g. AsyncStorage load).
+  // Sync external position changes (after AsyncStorage load or scale change)
   const prevPos = useRef(position);
   useEffect(() => {
     if (prevPos.current.x !== position.x || prevPos.current.y !== position.y) {
@@ -58,15 +63,17 @@ export function DraggableButton({
     }
   }, [position.x, position.y]);
 
+  const scaledW = btnW * scale;
+  const scaledH = btnH * scale;
+
   const panResponder = useMemo(
     () =>
       PanResponder.create({
-        // Only capture in edit mode
         onStartShouldSetPanResponder: () => editMode,
-        onMoveShouldSetPanResponder: () => editMode,
+        onMoveShouldSetPanResponder: (_, gs) =>
+          editMode && (Math.abs(gs.dx) > DRAG_THRESHOLD || Math.abs(gs.dy) > DRAG_THRESHOLD),
 
         onPanResponderGrant: () => {
-          // Start offset from current committed position
           pan.setOffset({ x: committed.current.x, y: committed.current.y });
           pan.setValue({ x: 0, y: 0 });
         },
@@ -77,13 +84,13 @@ export function DraggableButton({
 
         onPanResponderRelease: (_, gs) => {
           pan.flattenOffset();
-
-          // Clamp within body bounds
-          const rawX = committed.current.x + gs.dx;
-          const rawY = committed.current.y + gs.dy;
-          const x = Math.max(0, Math.min(bodyW - btnW, rawX));
-          const y = Math.max(0, Math.min(bodyH - btnH, rawY));
-
+          if (Math.abs(gs.dx) + Math.abs(gs.dy) < DRAG_THRESHOLD) {
+            // Treated as tap on edit handle — restore position
+            pan.setValue({ x: committed.current.x, y: committed.current.y });
+            return;
+          }
+          const x = Math.max(0, Math.min(bodyW - scaledW, committed.current.x + gs.dx));
+          const y = Math.max(0, Math.min(bodyH - scaledH, committed.current.y + gs.dy));
           pan.setValue({ x, y });
           committed.current = { x, y };
           onDrop({ x, y });
@@ -91,38 +98,65 @@ export function DraggableButton({
 
         onPanResponderTerminate: (_, gs) => {
           pan.flattenOffset();
-          const rawX = committed.current.x + gs.dx;
-          const rawY = committed.current.y + gs.dy;
-          const x = Math.max(0, Math.min(bodyW - btnW, rawX));
-          const y = Math.max(0, Math.min(bodyH - btnH, rawY));
+          const x = Math.max(0, Math.min(bodyW - scaledW, committed.current.x + gs.dx));
+          const y = Math.max(0, Math.min(bodyH - scaledH, committed.current.y + gs.dy));
           pan.setValue({ x, y });
           committed.current = { x, y };
           onDrop({ x, y });
         },
       }),
-    // Recreate whenever edit mode or bounds change
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [editMode, bodyW, bodyH, btnW, btnH],
+    [editMode, bodyW, bodyH, scaledW, scaledH],
   );
 
   return (
     <Animated.View
       style={[
-        styles.wrapper,
-        { left: pan.x, top: pan.y },
+        {
+          position: 'absolute',
+          left: pan.x,
+          top: pan.y,
+          width: scaledW,
+          height: scaledH,
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10,
+        },
         editMode && styles.editOutline,
       ]}
       {...panResponder.panHandlers}
     >
-      {/* Move-handle chip — only visible in edit mode */}
+      {/* ── Resize + drag handle (shown above button in edit mode) ── */}
       {editMode && (
-        <View style={styles.handle} pointerEvents="none">
-          <Feather name="move" size={9} color="#000" />
+        <View style={styles.handle} pointerEvents="box-none">
+          <TouchableOpacity
+            style={styles.scaleBtn}
+            onPress={onDecreaseScale}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={styles.scaleBtnTxt}>−</Text>
+          </TouchableOpacity>
+
+          <View style={styles.scaleLabelWrap}>
+            <Feather name="move" size={8} color="#000" />
+            <Text style={styles.scaleLabel}>{scale.toFixed(1)}×</Text>
+          </View>
+
+          <TouchableOpacity
+            style={styles.scaleBtn}
+            onPress={onIncreaseScale}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={styles.scaleBtnTxt}>+</Text>
+          </TouchableOpacity>
         </View>
       )}
 
-      {/* In edit mode: disable child touch so buttons don't fire while dragging */}
-      <View pointerEvents={editMode ? 'none' : 'auto'}>
+      {/* ── Button content (scaled) ── */}
+      <View
+        style={{ width: btnW, height: btnH, transform: [{ scale }] }}
+        pointerEvents={editMode ? 'none' : 'auto'}
+      >
         {children}
       </View>
     </Animated.View>
@@ -130,30 +164,51 @@ export function DraggableButton({
 }
 
 const styles = StyleSheet.create({
-  wrapper: {
-    position: 'absolute',
-    zIndex: 10,
-  },
   editOutline: {
     borderWidth: 1.5,
     borderColor: '#06b6d4',
     borderRadius: 16,
-    padding: 3,
-    backgroundColor: '#06b6d410',
+    backgroundColor: '#06b6d408',
   },
+
   handle: {
     position: 'absolute',
-    top: -10,
-    alignSelf: 'center',
-    left: '50%',
-    marginLeft: -10,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    top: -24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
     backgroundColor: '#06b6d4',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    zIndex: 30,
+    elevation: 8,
+    alignSelf: 'center',
+  },
+  scaleBtn: {
+    width: 18,
+    height: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 20,
-    elevation: 6,
+    borderRadius: 9,
+    backgroundColor: '#00000030',
+  },
+  scaleBtnTxt: {
+    color: '#000',
+    fontSize: 13,
+    fontWeight: '900',
+    lineHeight: 17,
+  },
+  scaleLabelWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 2,
+  },
+  scaleLabel: {
+    color: '#000',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
 });

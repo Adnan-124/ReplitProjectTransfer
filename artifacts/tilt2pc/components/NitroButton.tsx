@@ -1,24 +1,30 @@
 /**
- * NitroButton — Asphalt 9 nitro state machine
+ * NitroButton — Asphalt 9 nitro state machine with per-car timing.
  *
- * State transitions:
+ * Props:
+ *   perfectWindowStart — ms after first tap: perfect window opens  (default 320)
+ *   perfectWindowEnd   — ms after first tap: perfect window closes  (default 600)
  *
- *   idle ──[tap]──► yellow (0–320ms: window not open yet)
- *                      │
- *            [320ms] ──► perfect_window  ──[tap]──► perfect
- *                      │         │
- *            [750ms] ──►    window_missed
- *                      │
- *           [2800ms] ──► idle
+ * These map to car classes in CAR_PROFILES (AppContext):
+ *   C/D class:   320–950 ms   (very easy)
+ *   B class:     320–750 ms
+ *   A class:     320–600 ms   (default)
+ *   S class:     320–480 ms   (narrow)
+ *   S+ Hypercar: 320–390 ms   (~70ms window — very precise)
  *
- *   perfect ──[3500ms]──► idle
+ * State machine:
+ *   idle → [tap] → yellow (0–perfectWindowStart)
+ *                     │
+ *         [start] ──► perfect_window ──[tap]──► perfect
+ *                     │
+ *           [end] ──► window_missed (yellow winding down)
  *
- * Visual cues:
- *   IDLE         — amber border, dim
- *   YELLOW       — bright yellow glow, "WINDOW COMING…" text
- *   PERF WINDOW  — blue pulsing ring expands, "TAP NOW!" text, countdown bar
- *   PERFECT      — cyan burst + "PERFECT!" text
- *   MISSED       — muted, fading back to idle
+ * Visual:
+ *   idle           — amber dim
+ *   yellow         — amber glow, "window coming…"
+ *   perfect_window — blue pulsing ring + countdown bar + "TAP NOW!"
+ *   perfect        — cyan burst + "PERFECT!"
+ *   window_missed  — muted grey
  */
 
 import * as Haptics from 'expo-haptics';
@@ -27,42 +33,43 @@ import { Animated, Easing, Platform, StyleSheet, Text, TouchableOpacity, View } 
 
 export type NitroType = 'yellow' | 'perfect';
 
-type Phase =
-  | 'idle'
-  | 'yellow'           // 0 → 320 ms after first tap
-  | 'perfect_window'   // 320 → 750 ms — second tap here = perfect
-  | 'perfect'          // perfect nitro active
-  | 'window_missed';   // >750 ms, window gone, yellow still running down
+type Phase = 'idle' | 'yellow' | 'perfect_window' | 'perfect' | 'window_missed';
 
 interface NitroButtonProps {
   onNitro: (type: NitroType) => void;
   borderColor: string;
   backgroundColor: string;
+  /** ms after first tap that the blue zone opens (default 320) */
+  perfectWindowStart?: number;
+  /** ms after first tap that the blue zone closes (default 600) */
+  perfectWindowEnd?: number;
 }
 
-const PERFECT_WINDOW_START = 320;
-const PERFECT_WINDOW_END = 750;
 const YELLOW_DURATION = 2800;
 const PERFECT_DURATION = 3500;
-const WINDOW_DURATION = PERFECT_WINDOW_END - PERFECT_WINDOW_START; // 430 ms
 
-const PHASE_PALETTE: Record<Phase, { border: string; bg: string; glow: string; label: string; hint: string }> = {
-  idle:           { border: '#fbbf24', bg: '#120d00', glow: '#fbbf2400', label: 'NITRO',      hint: 'tap = yellow' },
-  yellow:         { border: '#f59e0b', bg: '#1f1400', glow: '#f59e0b99', label: 'YELLOW',     hint: 'window opening…' },
-  perfect_window: { border: '#3b82f6', bg: '#00102a', glow: '#3b82f6bb', label: '▶ TAP ◀',   hint: 'tap for PERFECT!' },
-  perfect:        { border: '#06b6d4', bg: '#001822', glow: '#06b6d4cc', label: 'PERFECT!',   hint: '✦ perfect nitro ✦' },
-  window_missed:  { border: '#78716c', bg: '#0f0f0f', glow: '#00000000', label: 'NITRO',      hint: 'window missed' },
+const PHASE_PALETTE: Record<Phase, { border: string; bg: string; label: string; hint: string }> = {
+  idle:           { border: '#fbbf24', bg: '#120d00', label: 'NITRO',    hint: 'tap = yellow' },
+  yellow:         { border: '#f59e0b', bg: '#1f1400', label: 'YELLOW',   hint: 'window coming…' },
+  perfect_window: { border: '#3b82f6', bg: '#00102a', label: '▶ TAP ◀', hint: 'tap for PERFECT!' },
+  perfect:        { border: '#06b6d4', bg: '#001822', label: 'PERFECT!', hint: '✦ perfect nitro ✦' },
+  window_missed:  { border: '#78716c', bg: '#0f0f0f', label: 'NITRO',   hint: 'window missed' },
 };
 
-export function NitroButton({ onNitro, borderColor: _bc, backgroundColor: _bgc }: NitroButtonProps) {
+export function NitroButton({
+  onNitro,
+  perfectWindowStart = 320,
+  perfectWindowEnd = 600,
+}: NitroButtonProps) {
+  const windowDuration = Math.max(1, perfectWindowEnd - perfectWindowStart);
+
   const [phase, setPhase] = useState<Phase>('idle');
-  const [windowPct, setWindowPct] = useState(0);  // 0→1 during perfect_window
+  const [windowPct, setWindowPct] = useState(0);
 
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const windowInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const windowStartRef = useRef(0);
 
-  // Animations
   const btnScale  = useRef(new Animated.Value(1)).current;
   const ringScale = useRef(new Animated.Value(1)).current;
   const ringOpacity = useRef(new Animated.Value(0)).current;
@@ -94,38 +101,34 @@ export function NitroButton({ onNitro, borderColor: _bc, backgroundColor: _bgc }
     windowStartRef.current = Date.now();
     haptic(Haptics.ImpactFeedbackStyle.Light);
 
-    // Clear countdown interval if running
     if (windowInterval.current) clearInterval(windowInterval.current);
-
-    // Drive the countdown bar
     windowInterval.current = setInterval(() => {
-      const pct = Math.min(1, (Date.now() - windowStartRef.current) / WINDOW_DURATION);
+      const pct = Math.min(1, (Date.now() - windowStartRef.current) / windowDuration);
       setWindowPct(pct);
-      if (pct >= 1) {
-        if (windowInterval.current) clearInterval(windowInterval.current);
+      if (pct >= 1 && windowInterval.current) {
+        clearInterval(windowInterval.current);
+        windowInterval.current = null;
       }
     }, 16);
 
-    // Pulsing ring animation (3 pulses)
     const pulse = () => {
       ringScale.setValue(1);
       ringOpacity.setValue(0.85);
       Animated.parallel([
         Animated.timing(ringScale, {
           toValue: 1.65,
-          duration: 300,
+          duration: Math.min(300, windowDuration / 2),
           easing: Easing.out(Easing.quad),
           useNativeDriver: true,
         }),
         Animated.timing(ringOpacity, {
           toValue: 0,
-          duration: 300,
+          duration: Math.min(300, windowDuration / 2),
           useNativeDriver: true,
         }),
       ]).start(() => {
         if (timers.current.length > 0) {
-          // Still in window; pulse again in 120ms
-          const t = setTimeout(pulse, 120);
+          const t = setTimeout(pulse, 80);
           timers.current.push(t);
         }
       });
@@ -140,25 +143,20 @@ export function NitroButton({ onNitro, borderColor: _bc, backgroundColor: _bgc }
     onNitro('yellow');
     haptic(Haptics.ImpactFeedbackStyle.Heavy);
 
-    // Button press squeeze
     Animated.sequence([
       Animated.timing(btnScale, { toValue: 0.86, duration: 70, useNativeDriver: true }),
       Animated.spring(btnScale, { toValue: 1, useNativeDriver: true, speed: 60 }),
     ]).start();
     Animated.timing(glowAnim, { toValue: 1, duration: 180, useNativeDriver: true }).start();
 
-    // Open perfect window at 320ms
-    const t1 = setTimeout(openPerfectWindow, PERFECT_WINDOW_START);
-    // Close window at 750ms
+    const t1 = setTimeout(openPerfectWindow, perfectWindowStart);
     const t2 = setTimeout(() => {
       setPhase('window_missed');
       if (windowInterval.current) { clearInterval(windowInterval.current); windowInterval.current = null; }
       setWindowPct(0);
       Animated.timing(glowAnim, { toValue: 0.3, duration: 300, useNativeDriver: true }).start();
-    }, PERFECT_WINDOW_END);
-    // Return to idle after yellow duration
+    }, perfectWindowEnd);
     const t3 = setTimeout(resetIdle, YELLOW_DURATION);
-
     timers.current = [t1, t2, t3];
   };
 
@@ -172,14 +170,12 @@ export function NitroButton({ onNitro, borderColor: _bc, backgroundColor: _bgc }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     }
 
-    // Burst ring
     ringScale.setValue(1);
     ringOpacity.setValue(1);
     Animated.parallel([
       Animated.timing(ringScale, { toValue: 2.2, duration: 500, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
       Animated.timing(ringOpacity, { toValue: 0, duration: 500, useNativeDriver: true }),
     ]).start();
-
     Animated.sequence([
       Animated.timing(btnScale, { toValue: 1.08, duration: 100, useNativeDriver: true }),
       Animated.spring(btnScale, { toValue: 1, useNativeDriver: true }),
@@ -196,31 +192,27 @@ export function NitroButton({ onNitro, borderColor: _bc, backgroundColor: _bgc }
         startYellow();
         break;
       case 'yellow':
-        // Too early — window not open yet; ignore to prevent accidental re-fires
+        // Too early — perfect window not open yet; ignore
         break;
       case 'perfect_window':
         firePerfect();
         break;
       case 'window_missed':
-        // Re-fire as yellow (give a short gap first)
         resetIdle();
-        const t = setTimeout(startYellow, 80);
-        timers.current = [t];
+        { const t = setTimeout(startYellow, 80); timers.current = [t]; }
         break;
       case 'perfect':
-        // Already in perfect, ignore
         break;
     }
   };
 
-  // Cleanup on unmount
   useEffect(() => () => clearAll(), []);
 
   const pal = PHASE_PALETTE[phase];
 
   return (
     <View style={styles.wrapper}>
-      {/* Expanding ring (perfect window pulse / burst) */}
+      {/* Expanding ring */}
       <Animated.View
         style={[
           styles.ring,
@@ -243,36 +235,37 @@ export function NitroButton({ onNitro, borderColor: _bc, backgroundColor: _bgc }
             {
               backgroundColor: pal.bg,
               borderColor: pal.border,
-              shadowColor: pal.glow,
+              shadowColor: pal.border,
               shadowOffset: { width: 0, height: 0 },
-              shadowOpacity: 1,
-              shadowRadius: phase === 'perfect' ? 22 : phase === 'yellow' || phase === 'perfect_window' ? 14 : 5,
+              shadowOpacity: phase === 'idle' || phase === 'window_missed' ? 0.15 : 0.85,
+              shadowRadius: phase === 'perfect' ? 22 : phase === 'yellow' || phase === 'perfect_window' ? 14 : 4,
               elevation: phase === 'idle' || phase === 'window_missed' ? 2 : 10,
             },
           ]}
         >
+          {/* Lightning bolt icon */}
+          <Text style={[styles.nitroIcon, { color: pal.border }]}>⚡</Text>
           <Text style={[styles.label, { color: pal.border }]}>{pal.label}</Text>
         </TouchableOpacity>
       </Animated.View>
 
-      {/* Perfect window countdown bar (drains left→right = time remaining) */}
+      {/* Perfect window countdown bar */}
       <View style={styles.barTrack}>
         {phase === 'perfect_window' ? (
-          <View
-            style={[
-              styles.barFill,
-              {
-                width: `${(1 - windowPct) * 100}%`,
-                backgroundColor: '#3b82f6',
-              },
-            ]}
-          />
+          <View style={[styles.barFill, { width: `${(1 - windowPct) * 100}%`, backgroundColor: '#3b82f6' }]} />
         ) : phase === 'yellow' ? (
           <View style={[styles.barFill, { width: '100%', backgroundColor: '#f59e0baa' }]} />
         ) : null}
       </View>
 
-      {/* Phase hint text */}
+      {/* Window size indicator (shown in idle so user knows timing) */}
+      {phase === 'idle' && (
+        <Text style={styles.windowLabel}>
+          window: {windowDuration}ms
+        </Text>
+      )}
+
+      {/* Phase hint */}
       <Text style={[styles.hint, { color: pal.border + 'aa' }]}>{pal.hint}</Text>
     </View>
   );
@@ -281,7 +274,7 @@ export function NitroButton({ onNitro, borderColor: _bc, backgroundColor: _bgc }
 const styles = StyleSheet.create({
   wrapper: {
     alignItems: 'center',
-    gap: 5,
+    gap: 4,
     width: 130,
   },
   ring: {
@@ -301,9 +294,14 @@ const styles = StyleSheet.create({
     borderWidth: 2.5,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 2,
+  },
+  nitroIcon: {
+    fontSize: 22,
+    lineHeight: 26,
   },
   label: {
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '900',
     letterSpacing: 1.8,
     textAlign: 'center',
@@ -321,6 +319,13 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     top: 0,
+  },
+  windowLabel: {
+    color: '#fbbf2466',
+    fontSize: 8,
+    fontWeight: '700',
+    letterSpacing: 1,
+    fontVariant: ['tabular-nums'],
   },
   hint: {
     fontSize: 8,

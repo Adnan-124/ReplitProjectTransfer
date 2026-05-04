@@ -12,7 +12,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useApp } from '@/context/AppContext';
+import { CAR_PROFILES, type CarId, useApp } from '@/context/AppContext';
 import { useColors } from '@/hooks/useColors';
 
 const SAMPLE_RATES = [30, 60, 90, 120];
@@ -40,15 +40,15 @@ export default function SettingsScreen() {
   };
 
   const handleDeleteProfile = (id: string, name: string) => {
-    if (Platform.OS === 'web') {
-      deleteProfile(id);
-      return;
-    }
+    if (Platform.OS === 'web') { deleteProfile(id); return; }
     Alert.alert('Delete Profile', `Delete "${name}"?`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: () => deleteProfile(id) },
     ]);
   };
+
+  const activeCarProfile = CAR_PROFILES.find((c) => c.id === settings.carId) ?? CAR_PROFILES[2];
+  const windowMs = activeCarProfile.perfectWindowEnd - activeCarProfile.perfectWindowStart;
 
   return (
     <ScrollView
@@ -59,31 +59,89 @@ export default function SettingsScreen() {
       ]}
       showsVerticalScrollIndicator={false}
     >
-      {/* Steering */}
+      {/* ── NITRO TIMING ─────────────────────────────────────────── */}
+      <Section title="NITRO TIMING  ·  PER-CAR PROFILE" colors={colors}>
+        <Text style={[styles.sectionDesc, { color: colors.mutedForeground }]}>
+          Each car class has a different "blue zone" window for perfect nitro.
+          Faster cars have shorter windows — requiring more precise timing.
+        </Text>
+
+        {CAR_PROFILES.map((car) => {
+          const active = settings.carId === car.id;
+          const w = car.perfectWindowEnd - car.perfectWindowStart;
+          return (
+            <TouchableOpacity
+              key={car.id}
+              style={[
+                styles.carCard,
+                {
+                  backgroundColor: active ? colors.primary + '18' : colors.secondary,
+                  borderColor: active ? colors.primary : colors.border,
+                },
+              ]}
+              onPress={() => updateSettings({ carId: car.id as CarId })}
+              activeOpacity={0.75}
+            >
+              <View style={styles.carCardLeft}>
+                {active && <View style={[styles.activeDot, { backgroundColor: colors.primary }]} />}
+                <View>
+                  <Text style={[styles.carName, { color: colors.foreground }]}>{car.name}</Text>
+                  <Text style={[styles.carDesc, { color: colors.mutedForeground }]}>
+                    {car.description}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.carCardRight}>
+                {/* Window bar: wider = easier */}
+                <View style={[styles.windowBarTrack, { backgroundColor: colors.border }]}>
+                  <View
+                    style={[
+                      styles.windowBarFill,
+                      {
+                        width: `${Math.round((w / 640) * 100)}%`,
+                        backgroundColor: active ? colors.primary : colors.primary + '55',
+                      },
+                    ]}
+                  />
+                </View>
+                <Text
+                  style={[
+                    styles.windowMs,
+                    { color: active ? colors.primary : colors.mutedForeground },
+                  ]}
+                >
+                  {w}ms
+                </Text>
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+
+        {/* Summary of active timing */}
+        <View style={[styles.timingInfo, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
+          <Feather name="zap" size={12} color={colors.primary} />
+          <Text style={[styles.timingInfoText, { color: colors.foreground }]}>
+            Active: <Text style={{ color: colors.primary, fontWeight: '700' }}>{activeCarProfile.name}</Text>
+            {'  ·  '}blue zone opens at{' '}
+            <Text style={{ fontWeight: '700' }}>{activeCarProfile.perfectWindowStart}ms</Text>,
+            {' '}lasts <Text style={{ color: colors.primary, fontWeight: '700' }}>{windowMs}ms</Text>
+          </Text>
+        </View>
+      </Section>
+
+      {/* ── STEERING ─────────────────────────────────────────────── */}
       <Section title="STEERING" colors={colors}>
         <Stepper
           label="Sensitivity"
           description="0 = hard to steer · 100 = very responsive (like Asphalt 9)"
-          value={settings.sensitivity}
-          min={0}
-          max={100}
-          step={1}
-          decimals={0}
-          unit=""
-          colors={colors}
-          onChange={(v) => updateSettings({ sensitivity: v })}
+          value={settings.sensitivity} min={0} max={100} step={1} decimals={0} unit=""
+          colors={colors} onChange={(v) => updateSettings({ sensitivity: v })}
         />
         <Stepper
           label="Deadzone"
           description="Ignore small tilts near center (0–30%)"
-          value={settings.deadzone}
-          min={0}
-          max={30}
-          step={1}
-          decimals={0}
-          unit="%"
-          colors={colors}
-          onChange={(v) => updateSettings({ deadzone: v })}
+          value={settings.deadzone} min={0} max={30} step={1} decimals={0} unit="%"
+          colors={colors} onChange={(v) => updateSettings({ deadzone: v })}
         />
         <ToggleRow
           label="Invert Steering"
@@ -94,35 +152,23 @@ export default function SettingsScreen() {
         />
       </Section>
 
-      {/* Smoothing */}
+      {/* ── SMOOTHING ────────────────────────────────────────────── */}
       <Section title="SMOOTHING & LATENCY" colors={colors}>
         <Stepper
           label="Alpha"
           description="Filter strength: 0.05 = max smooth (laggy) · 1.0 = raw (instant)"
-          value={settings.alpha}
-          min={0.05}
-          max={1.0}
-          step={0.05}
-          decimals={2}
-          unit=""
-          colors={colors}
-          onChange={(v) => updateSettings({ alpha: v })}
+          value={settings.alpha} min={0.05} max={1.0} step={0.05} decimals={2} unit=""
+          colors={colors} onChange={(v) => updateSettings({ alpha: v })}
         />
         <Stepper
           label="Beta (predictive)"
           description="Compensates filter lag. 0 = off · 0.30 = max"
-          value={settings.beta}
-          min={0}
-          max={0.3}
-          step={0.01}
-          decimals={2}
-          unit=""
-          colors={colors}
-          onChange={(v) => updateSettings({ beta: v })}
+          value={settings.beta} min={0} max={0.3} step={0.01} decimals={2} unit=""
+          colors={colors} onChange={(v) => updateSettings({ beta: v })}
         />
       </Section>
 
-      {/* Performance */}
+      {/* ── PERFORMANCE ──────────────────────────────────────────── */}
       <Section title="PERFORMANCE" colors={colors}>
         <View style={styles.rateBlock}>
           <Text style={[styles.fieldLabel, { color: colors.foreground }]}>Sample Rate</Text>
@@ -136,10 +182,8 @@ export default function SettingsScreen() {
                 style={[
                   styles.ratePill,
                   {
-                    backgroundColor:
-                      settings.sampleRate === rate ? colors.primary : colors.secondary,
-                    borderColor:
-                      settings.sampleRate === rate ? colors.primary : colors.border,
+                    backgroundColor: settings.sampleRate === rate ? colors.primary : colors.secondary,
+                    borderColor: settings.sampleRate === rate ? colors.primary : colors.border,
                   },
                 ]}
                 onPress={() => updateSettings({ sampleRate: rate })}
@@ -147,12 +191,7 @@ export default function SettingsScreen() {
                 <Text
                   style={[
                     styles.ratePillText,
-                    {
-                      color:
-                        settings.sampleRate === rate
-                          ? colors.primaryForeground
-                          : colors.mutedForeground,
-                    },
+                    { color: settings.sampleRate === rate ? colors.primaryForeground : colors.mutedForeground },
                   ]}
                 >
                   {rate}Hz
@@ -163,7 +202,7 @@ export default function SettingsScreen() {
         </View>
       </Section>
 
-      {/* Profiles */}
+      {/* ── PROFILES ─────────────────────────────────────────────── */}
       <Section title="PROFILES" colors={colors}>
         {profiles.length === 0 && (
           <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
@@ -176,10 +215,8 @@ export default function SettingsScreen() {
             style={[
               styles.profileRow,
               {
-                backgroundColor:
-                  profile.id === activeProfileId ? colors.primary + '18' : colors.secondary,
-                borderColor:
-                  profile.id === activeProfileId ? colors.primary + '66' : colors.border,
+                backgroundColor: profile.id === activeProfileId ? colors.primary + '18' : colors.secondary,
+                borderColor: profile.id === activeProfileId ? colors.primary + '66' : colors.border,
               },
             ]}
           >
@@ -187,11 +224,10 @@ export default function SettingsScreen() {
               {profile.id === activeProfileId && (
                 <View style={[styles.activeDot, { backgroundColor: colors.primary }]} />
               )}
-              <Text style={[styles.profileName, { color: colors.foreground }]}>
-                {profile.name}
-              </Text>
+              <Text style={[styles.profileName, { color: colors.foreground }]}>{profile.name}</Text>
               <Text style={[styles.profileMeta, { color: colors.mutedForeground }]}>
                 sens={profile.settings.sensitivity} · α={profile.settings.alpha} · {profile.settings.sampleRate}Hz
+                {profile.settings.carId ? ` · ${profile.settings.carId}` : ''}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -206,14 +242,7 @@ export default function SettingsScreen() {
         {showSaveInput ? (
           <View style={styles.saveInputRow}>
             <TextInput
-              style={[
-                styles.saveInput,
-                {
-                  backgroundColor: colors.secondary,
-                  color: colors.foreground,
-                  borderColor: colors.border,
-                },
-              ]}
+              style={[styles.saveInput, { backgroundColor: colors.secondary, color: colors.foreground, borderColor: colors.border }]}
               value={profileName}
               onChangeText={setProfileName}
               placeholder="Profile name…"
@@ -222,18 +251,12 @@ export default function SettingsScreen() {
               returnKeyType="done"
               onSubmitEditing={handleSaveProfile}
             />
-            <TouchableOpacity
-              style={[styles.saveBtn, { backgroundColor: colors.primary }]}
-              onPress={handleSaveProfile}
-            >
+            <TouchableOpacity style={[styles.saveBtn, { backgroundColor: colors.primary }]} onPress={handleSaveProfile}>
               <Feather name="check" size={16} color={colors.primaryForeground} />
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.cancelBtn, { backgroundColor: colors.secondary, borderColor: colors.border }]}
-              onPress={() => {
-                setShowSaveInput(false);
-                setProfileName('');
-              }}
+              onPress={() => { setShowSaveInput(false); setProfileName(''); }}
             >
               <Feather name="x" size={16} color={colors.mutedForeground} />
             </TouchableOpacity>
@@ -251,27 +274,24 @@ export default function SettingsScreen() {
         )}
       </Section>
 
-      {/* About */}
+      {/* ── ABOUT ────────────────────────────────────────────────── */}
       <View style={[styles.aboutCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
         <Text style={[styles.aboutTitle, { color: colors.mutedForeground }]}>ABOUT</Text>
         <Text style={[styles.aboutText, { color: colors.mutedForeground }]}>
           Tilt2PC v1.0 — Raw input mapping for Asphalt 9 on Windows.{'\n'}
           Connects via WebSocket over local Wi-Fi (port 3333). Target latency &lt;50ms.{'\n\n'}
-          Sensitivity scale matches Asphalt 9 (0–100). No game memory is read.
+          Nitro timing is per-car: select your class above for accurate blue zone windows.{'\n'}
+          Shockwave and Drift buttons have been removed for a cleaner HUD.
         </Text>
       </View>
     </ScrollView>
   );
 }
 
-function Section({
-  title,
-  children,
-  colors,
-}: {
-  title: string;
-  children: React.ReactNode;
-  colors: ReturnType<typeof useColors>;
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function Section({ title, children, colors }: {
+  title: string; children: React.ReactNode; colors: ReturnType<typeof useColors>;
 }) {
   return (
     <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -281,44 +301,21 @@ function Section({
   );
 }
 
-function Stepper({
-  label,
-  description,
-  value,
-  min,
-  max,
-  step,
-  decimals,
-  unit,
-  colors,
-  onChange,
-}: {
-  label: string;
-  description?: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  decimals: number;
-  unit: string;
-  colors: ReturnType<typeof useColors>;
+function Stepper({ label, description, value, min, max, step, decimals, unit, colors, onChange }: {
+  label: string; description?: string; value: number; min: number; max: number;
+  step: number; decimals: number; unit: string; colors: ReturnType<typeof useColors>;
   onChange: (v: number) => void;
 }) {
-  const dec = () => onChange(Math.max(min, parseFloat((value - step).toFixed(decimals))));
-  const inc = () => onChange(Math.min(max, parseFloat((value + step).toFixed(decimals))));
-
   return (
     <View style={styles.stepperRow}>
       <View style={styles.stepperInfo}>
         <Text style={[styles.stepperLabel, { color: colors.foreground }]}>{label}</Text>
-        {description ? (
-          <Text style={[styles.stepperDesc, { color: colors.mutedForeground }]}>{description}</Text>
-        ) : null}
+        {description ? <Text style={[styles.stepperDesc, { color: colors.mutedForeground }]}>{description}</Text> : null}
       </View>
       <View style={styles.stepperControls}>
         <TouchableOpacity
           style={[styles.stepBtn, { backgroundColor: colors.secondary, borderColor: colors.border }]}
-          onPress={dec}
+          onPress={() => onChange(Math.max(min, parseFloat((value - step).toFixed(decimals))))}
         >
           <Feather name="minus" size={13} color={colors.foreground} />
         </TouchableOpacity>
@@ -329,7 +326,7 @@ function Stepper({
         </View>
         <TouchableOpacity
           style={[styles.stepBtn, { backgroundColor: colors.secondary, borderColor: colors.border }]}
-          onPress={inc}
+          onPress={() => onChange(Math.min(max, parseFloat((value + step).toFixed(decimals))))}
         >
           <Feather name="plus" size={13} color={colors.foreground} />
         </TouchableOpacity>
@@ -338,26 +335,15 @@ function Stepper({
   );
 }
 
-function ToggleRow({
-  label,
-  description,
-  value,
-  colors,
-  onChange,
-}: {
-  label: string;
-  description?: string;
-  value: boolean;
-  colors: ReturnType<typeof useColors>;
-  onChange: (v: boolean) => void;
+function ToggleRow({ label, description, value, colors, onChange }: {
+  label: string; description?: string; value: boolean;
+  colors: ReturnType<typeof useColors>; onChange: (v: boolean) => void;
 }) {
   return (
     <View style={styles.toggleRow}>
       <View style={styles.stepperInfo}>
         <Text style={[styles.stepperLabel, { color: colors.foreground }]}>{label}</Text>
-        {description ? (
-          <Text style={[styles.stepperDesc, { color: colors.mutedForeground }]}>{description}</Text>
-        ) : null}
+        {description ? <Text style={[styles.stepperDesc, { color: colors.mutedForeground }]}>{description}</Text> : null}
       </View>
       <Switch
         value={value}
@@ -374,92 +360,74 @@ const styles = StyleSheet.create({
   content: { padding: 16, gap: 14 },
   section: { borderRadius: 14, borderWidth: 1, padding: 16, gap: 14 },
   sectionTitle: { fontSize: 10, fontWeight: '700', letterSpacing: 2, marginBottom: 2 },
-  stepperRow: {
+  sectionDesc: { fontSize: 12, lineHeight: 18 },
+
+  // ── Car cards ─────────────────────────────────────────────────────
+  carCard: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    padding: 12,
+    gap: 10,
   },
+  carCardLeft: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  carName: { fontSize: 13, fontWeight: '700' },
+  carDesc: { fontSize: 11, lineHeight: 16, marginTop: 1 },
+  carCardRight: { alignItems: 'flex-end', gap: 4, width: 70 },
+  windowBarTrack: { width: 70, height: 6, borderRadius: 3, overflow: 'hidden' },
+  windowBarFill: { height: '100%', borderRadius: 3 },
+  windowMs: { fontSize: 11, fontWeight: '700', fontVariant: ['tabular-nums'] },
+
+  timingInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginTop: 2,
+  },
+  timingInfoText: { fontSize: 12, flex: 1, lineHeight: 18 },
+
+  // ── Stepper ───────────────────────────────────────────────────────
+  stepperRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   stepperInfo: { flex: 1, gap: 2 },
   stepperLabel: { fontSize: 14, fontWeight: '500' },
   stepperDesc: { fontSize: 11, lineHeight: 15 },
   stepperControls: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  stepBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stepValue: {
-    minWidth: 64,
-    height: 32,
-    borderRadius: 8,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 6,
-  },
+  stepBtn: { width: 32, height: 32, borderRadius: 8, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  stepValue: { minWidth: 64, height: 32, borderRadius: 8, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
   stepValueText: { fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'] },
-  toggleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
+
+  // ── Toggle ────────────────────────────────────────────────────────
+  toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+
+  // ── Performance ───────────────────────────────────────────────────
   fieldLabel: { fontSize: 14, fontWeight: '500' },
   fieldDesc: { fontSize: 11, lineHeight: 15, marginTop: 2 },
   rateBlock: { gap: 8 },
   ratePills: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
-  ratePill: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-  },
+  ratePill: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, borderWidth: 1 },
   ratePillText: { fontSize: 13, fontWeight: '600' },
+
+  // ── Profiles ──────────────────────────────────────────────────────
   emptyText: { fontSize: 13, textAlign: 'center', paddingVertical: 8 },
-  profileRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 10,
-    borderWidth: 1,
-    overflow: 'hidden',
-  },
+  profileRow: { flexDirection: 'row', alignItems: 'center', borderRadius: 10, borderWidth: 1, overflow: 'hidden' },
   profileInfo: { flex: 1, padding: 12, gap: 2 },
   activeDot: { width: 6, height: 6, borderRadius: 3, marginBottom: 2 },
   profileName: { fontSize: 14, fontWeight: '600' },
   profileMeta: { fontSize: 11 },
   deleteBtn: { width: 44, alignSelf: 'stretch', alignItems: 'center', justifyContent: 'center' },
   saveInputRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
-  saveInput: {
-    flex: 1,
-    borderRadius: 10,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-  },
+  saveInput: { flex: 1, borderRadius: 10, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14 },
   saveBtn: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  cancelBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  addProfileBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    borderRadius: 10,
-    borderWidth: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-  },
+  cancelBtn: { width: 40, height: 40, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  addProfileBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 10, borderWidth: 1, paddingVertical: 12, paddingHorizontal: 14 },
   addProfileText: { fontSize: 13, fontWeight: '600' },
+
+  // ── About ─────────────────────────────────────────────────────────
   aboutCard: { borderRadius: 14, borderWidth: 1, padding: 16, gap: 8 },
   aboutTitle: { fontSize: 10, fontWeight: '700', letterSpacing: 2 },
   aboutText: { fontSize: 12, lineHeight: 19 },

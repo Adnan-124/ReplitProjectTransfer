@@ -1,46 +1,45 @@
 /**
- * useHUDLayout — manages draggable button positions for the control HUD.
+ * useHUDLayout — manages draggable button positions + sizes for the control HUD.
  *
- * Positions are stored in AsyncStorage as pixel coordinates relative to
- * the body container (measured via onLayout in control.tsx).
+ * Buttons: CAMERA, MENU, HUD_EDIT, NITRO, BRAKE
+ * (Shockwave and Drift removed per user request)
  *
- * Default positions are expressed as fractions of body dimensions so the
- * layout scales correctly across different phone sizes/orientations.
+ * Each button stores: position { x, y } and scale (0.6 – 1.5).
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
 
-const STORAGE_KEY = '@tilt2pc_hud_v2';
+const STORAGE_KEY = '@tilt2pc_hud_v3';
 
-export type HUDButtonId = 'CAMERA' | 'SHOCK' | 'MENU' | 'NITRO' | 'DRIFT' | 'BRAKE';
+export type HUDButtonId = 'CAMERA' | 'MENU' | 'HUD_EDIT' | 'NITRO' | 'BRAKE';
 
-/** Pixel dimensions of each button's bounding box (width × height). */
+/** Base pixel dimensions (at scale 1.0) of each button's bounding box. */
 export const BUTTON_BOX: Record<HUDButtonId, { w: number; h: number }> = {
-  CAMERA: { w: 84,  h: 84  },
-  SHOCK:  { w: 64,  h: 64  },
-  MENU:   { w: 64,  h: 64  },
-  NITRO:  { w: 130, h: 130 }, // NitroButton wrapper includes bar + hint
-  DRIFT:  { w: 84,  h: 84  },
-  BRAKE:  { w: 84,  h: 84  },
+  CAMERA:   { w: 84,  h: 84  },
+  MENU:     { w: 64,  h: 64  },
+  HUD_EDIT: { w: 64,  h: 64  },
+  NITRO:    { w: 130, h: 130 },
+  BRAKE:    { w: 84,  h: 84  },
 };
 
-/**
- * Default positions as fractions [xFrac, yFrac] of the body container.
- * Values map to the left-top corner of each button bounding box.
- */
+/** Default positions as fractions [xFrac, yFrac] of body container. */
 const DEFAULTS: Record<HUDButtonId, [number, number]> = {
-  CAMERA: [0.01, 0.04],
-  SHOCK:  [0.01, 0.43],
-  MENU:   [0.01, 0.78],
-  NITRO:  [0.76, 0.04],
-  DRIFT:  [0.65, 0.63],
-  BRAKE:  [0.83, 0.63],
+  CAMERA:   [0.01, 0.04],
+  MENU:     [0.01, 0.47],
+  HUD_EDIT: [0.01, 0.77],
+  NITRO:    [0.76, 0.04],
+  BRAKE:    [0.83, 0.65],
 };
 
-export type PosMap = Record<HUDButtonId, { x: number; y: number }>;
+const DEFAULT_SCALE = 1.0;
+const MIN_SCALE = 0.6;
+const MAX_SCALE = 1.5;
+const SCALE_STEP = 0.1;
 
-/** Compute pixel defaults from body dimensions. */
+export type PosMap   = Record<HUDButtonId, { x: number; y: number }>;
+export type ScaleMap = Record<HUDButtonId, number>;
+
 function computeDefaults(bw: number, bh: number): PosMap {
   const result = {} as PosMap;
   for (const [id, [xf, yf]] of Object.entries(DEFAULTS) as [HUDButtonId, [number, number]][]) {
@@ -53,53 +52,84 @@ function computeDefaults(bw: number, bh: number): PosMap {
   return result;
 }
 
-/** Clamp a position so the button stays within body bounds. */
 export function clampPos(
   x: number,
   y: number,
   id: HUDButtonId,
+  scale: number,
   bw: number,
   bh: number,
 ): { x: number; y: number } {
-  const { w, h } = BUTTON_BOX[id];
+  const scaledW = BUTTON_BOX[id].w * scale;
+  const scaledH = BUTTON_BOX[id].h * scale;
   return {
-    x: Math.max(0, Math.min(bw - w, x)),
-    y: Math.max(0, Math.min(bh - h, y)),
+    x: Math.max(0, Math.min(bw - scaledW, x)),
+    y: Math.max(0, Math.min(bh - scaledH, y)),
   };
+}
+
+interface StoredLayout {
+  positions?: Partial<PosMap>;
+  scales?: Partial<ScaleMap>;
 }
 
 export function useHUDLayout(bodyW: number, bodyH: number) {
   const [editMode, setEditMode] = useState(false);
-  /** Overrides: only stores buttons the user has explicitly moved. */
-  const [overrides, setOverrides] = useState<Partial<PosMap>>({});
+  const [positions, setPositions] = useState<Partial<PosMap>>({});
+  const [scales, setScales] = useState<Partial<ScaleMap>>({});
   const [ready, setReady] = useState(false);
 
-  // Load saved positions on mount
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY)
       .then((raw) => {
-        if (raw) setOverrides(JSON.parse(raw) as Partial<PosMap>);
+        if (raw) {
+          const parsed: StoredLayout = JSON.parse(raw);
+          if (parsed.positions) setPositions(parsed.positions);
+          if (parsed.scales) setScales(parsed.scales);
+        }
       })
       .catch(() => {})
       .finally(() => setReady(true));
   }, []);
 
-  /** Get the effective position for a button (override or default). */
-  const getPosition = (id: HUDButtonId): { x: number; y: number } => {
-    return overrides[id] ?? computeDefaults(bodyW, bodyH)[id];
+  const _save = (nextPos: Partial<PosMap>, nextScales: Partial<ScaleMap>) => {
+    AsyncStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ positions: nextPos, scales: nextScales }),
+    ).catch(() => {});
   };
 
-  /** Called when user finishes dragging a button. */
+  const getPosition = (id: HUDButtonId): { x: number; y: number } =>
+    positions[id] ?? computeDefaults(bodyW, bodyH)[id];
+
+  const getScale = (id: HUDButtonId): number =>
+    scales[id] ?? DEFAULT_SCALE;
+
   const updatePosition = (id: HUDButtonId, pos: { x: number; y: number }) => {
-    const clamped = clampPos(pos.x, pos.y, id, bodyW, bodyH);
-    const next = { ...overrides, [id]: clamped };
-    setOverrides(next);
-    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch(() => {});
+    const clamped = clampPos(pos.x, pos.y, id, getScale(id), bodyW, bodyH);
+    const next = { ...positions, [id]: clamped };
+    setPositions(next);
+    _save(next, scales);
   };
 
-  /** Restore all buttons to default positions. */
+  const updateScale = (id: HUDButtonId, rawScale: number) => {
+    const s = parseFloat(
+      Math.max(MIN_SCALE, Math.min(MAX_SCALE, rawScale)).toFixed(1),
+    );
+    const next = { ...scales, [id]: s };
+    setScales(next);
+    _save(positions, next);
+  };
+
+  const decreaseScale = (id: HUDButtonId) =>
+    updateScale(id, getScale(id) - SCALE_STEP);
+
+  const increaseScale = (id: HUDButtonId) =>
+    updateScale(id, getScale(id) + SCALE_STEP);
+
   const resetLayout = () => {
-    setOverrides({});
+    setPositions({});
+    setScales({});
     AsyncStorage.removeItem(STORAGE_KEY).catch(() => {});
   };
 
@@ -107,7 +137,11 @@ export function useHUDLayout(bodyW: number, bodyH: number) {
     editMode,
     setEditMode,
     getPosition,
+    getScale,
     updatePosition,
+    updateScale,
+    decreaseScale,
+    increaseScale,
     resetLayout,
     ready,
   };

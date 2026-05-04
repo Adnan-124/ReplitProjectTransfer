@@ -16,21 +16,20 @@ import { DiagnosticsOverlay } from '@/components/DiagnosticsOverlay';
 import { DraggableButton } from '@/components/DraggableButton';
 import { NitroButton, type NitroType } from '@/components/NitroButton';
 import { SteeringBar } from '@/components/SteeringBar';
-import { useApp } from '@/context/AppContext';
+import { CAR_PROFILES, useApp } from '@/context/AppContext';
 import { useColors } from '@/hooks/useColors';
 import { BUTTON_BOX, type HUDButtonId, useHUDLayout } from '@/hooks/useHUDLayout';
 import { useTilt } from '@/hooks/useTilt';
 
-type SimpleButtonId = 'DRIFT' | 'BRAKE' | 'CAMERA' | 'SHOCKWAVE' | 'MENU';
+type BtnId = 'BRAKE' | 'CAMERA' | 'MENU';
 
 export default function ControlScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
-  const { sendMessage, setLastEvent, connectionStatus, steerValue } = useApp();
+  const { sendMessage, setLastEvent, connectionStatus, steerValue, settings } = useApp();
   const [showDiag, setShowDiag] = useState(false);
 
-  // Body dimensions — filled by onLayout so DraggableButton can clamp correctly
   const [bodyW, setBodyW] = useState(0);
   const [bodyH, setBodyH] = useState(0);
 
@@ -56,7 +55,7 @@ export default function ControlScreen() {
   );
 
   const btn = useCallback(
-    (id: SimpleButtonId, action: 'down' | 'up' | 'click') => {
+    (id: BtnId, action: 'down' | 'up' | 'click') => {
       sendMessage({ type: 'button', ts: Date.now(), id, action });
       setLastEvent(`${id}:${action}`);
     },
@@ -71,6 +70,9 @@ export default function ControlScreen() {
     [sendMessage, setLastEvent],
   );
 
+  // Get per-car timing from active car profile
+  const carProfile = CAR_PROFILES.find((c) => c.id === settings.carId) ?? CAR_PROFILES[2];
+
   const connected = connectionStatus === 'connected';
   const steerPct = Math.abs(steerValue * 100).toFixed(0);
   const steerDir = steerValue > 0.05 ? '→' : steerValue < -0.05 ? '←' : '●';
@@ -81,14 +83,17 @@ export default function ControlScreen() {
   const rPad = Math.max(insets.right, Platform.OS === 'web' ? 8 : 12);
   const tPad = insets.top + (Platform.OS === 'web' ? (isLandscape ? 0 : 67) : 4);
 
-  // ── Draggable button config ──────────────────────────────────────────────
-  const draggable = (id: HUDButtonId, children: React.ReactNode) => (
+  // ── DraggableButton helper ─────────────────────────────────────────────────
+  const drag = (id: HUDButtonId, children: React.ReactNode) => (
     <DraggableButton
       key={id}
       id={id}
       position={hud.getPosition(id)}
+      scale={hud.getScale(id)}
       editMode={hud.editMode}
       onDrop={(pos) => hud.updatePosition(id, pos)}
+      onDecreaseScale={() => hud.decreaseScale(id)}
+      onIncreaseScale={() => hud.increaseScale(id)}
       bodyW={bodyW}
       bodyH={bodyH}
       btnW={BUTTON_BOX[id].w}
@@ -100,16 +105,11 @@ export default function ControlScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      {/* ── TOP BAR ──────────────────────────────────────────────────── */}
+      {/* ── TOP BAR ────────────────────────────────────────────────── */}
       <View
         style={[
           styles.topBar,
-          {
-            paddingTop: tPad,
-            paddingLeft: lPad,
-            paddingRight: rPad,
-            borderBottomColor: colors.border,
-          },
+          { paddingTop: tPad, paddingLeft: lPad, paddingRight: rPad, borderBottomColor: colors.border },
         ]}
       >
         <TouchableOpacity
@@ -128,25 +128,22 @@ export default function ControlScreen() {
             },
           ]}
         >
-          <View
-            style={[styles.liveDot, { backgroundColor: connected ? colors.success : colors.destructive }]}
-          />
-          <Text
-            style={[
-              styles.liveText,
-              { color: connected ? colors.success : colors.destructive },
-            ]}
-          >
+          <View style={[styles.liveDot, { backgroundColor: connected ? colors.success : colors.destructive }]} />
+          <Text style={[styles.liveText, { color: connected ? colors.success : colors.destructive }]}>
             {connected ? 'LIVE' : 'OFFLINE'}
           </Text>
         </View>
 
         <View style={styles.topCenter}>
           <Text style={[styles.steerPct, { color: steerColor }]}>
-            {steerDir}
-            {'  '}
-            {steerPct}%
+            {steerDir}{'  '}{steerPct}%
           </Text>
+          {/* Active car class pill */}
+          <View style={[styles.carPill, { borderColor: colors.primary + '44' }]}>
+            <Text style={[styles.carPillText, { color: colors.primary }]}>
+              {carProfile.name}
+            </Text>
+          </View>
         </View>
 
         {/* HUD edit mode toggle */}
@@ -185,14 +182,14 @@ export default function ControlScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* ── DIAG OVERLAY ─────────────────────────────────────────────── */}
+      {/* ── DIAG OVERLAY ───────────────────────────────────────────── */}
       {showDiag && (
         <View style={[styles.diagRow, { paddingHorizontal: lPad }]}>
           <DiagnosticsOverlay />
         </View>
       )}
 
-      {/* ── MAIN BODY ────────────────────────────────────────────────── */}
+      {/* ── MAIN BODY ──────────────────────────────────────────────── */}
       <View
         style={[styles.body, { paddingLeft: lPad, paddingRight: rPad }]}
         onLayout={(e) => {
@@ -200,113 +197,103 @@ export default function ControlScreen() {
           setBodyH(e.nativeEvent.layout.height);
         }}
       >
-        {/* Fixed center: SteeringBar + tilt hint. pointerEvents=none so tilt works everywhere */}
+        {/* Fixed center: SteeringBar. pointerEvents=none so tilt works everywhere */}
         <View style={styles.centerFixed} pointerEvents="none">
           <SteeringBar value={steerValue} />
           <View style={styles.tiltHint}>
-            <Feather name="navigation" size={20} color={colors.primary + '55'} />
+            <Feather name="navigation" size={18} color={colors.primary + '55'} />
             <Text style={[styles.tiltLabel, { color: colors.mutedForeground }]}>
               TILT TO STEER
             </Text>
           </View>
-          {/* Nitro legend (small, centre) */}
           <View style={styles.nitroLegend}>
             <View style={styles.legendRow}>
               <View style={[styles.legendDot, { backgroundColor: '#f59e0b' }]} />
-              <Text style={[styles.legendText, { color: colors.mutedForeground }]}>
-                tap = yellow nitro
-              </Text>
+              <Text style={[styles.legendText, { color: colors.mutedForeground }]}>tap = yellow</Text>
             </View>
             <View style={styles.legendRow}>
               <View style={[styles.legendDot, { backgroundColor: '#3b82f6' }]} />
               <Text style={[styles.legendText, { color: colors.mutedForeground }]}>
-                tap again in window = perfect
+                in window = perfect ({carProfile.perfectWindowEnd - carProfile.perfectWindowStart}ms)
               </Text>
             </View>
           </View>
         </View>
 
-        {/* ── Edit mode: floating instructions + reset ─────────────── */}
+        {/* Edit mode banner */}
         {hud.editMode && (
           <View style={styles.editBanner} pointerEvents="box-none">
-            <Text style={styles.editBannerText}>DRAG BUTTONS TO REPOSITION</Text>
-            <TouchableOpacity
-              style={styles.resetBtn}
-              onPress={hud.resetLayout}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Feather name="refresh-cw" size={11} color="#06b6d4" />
+            <Text style={styles.editBannerText}>DRAG · RESIZE WITH [-][+]</Text>
+            <TouchableOpacity style={styles.resetBtn} onPress={hud.resetLayout}>
+              <Feather name="refresh-cw" size={10} color="#06b6d4" />
               <Text style={styles.resetText}>RESET</Text>
             </TouchableOpacity>
           </View>
         )}
 
-        {/* ── Draggable HUD buttons (render only after body is measured) */}
+        {/* ── Draggable HUD buttons ─────────────────────────────── */}
         {bodyW > 0 && (
           <>
-            {draggable(
+            {/* CAMERA */}
+            {drag(
               'CAMERA',
               <ControlButton
                 label="CAMERA"
                 color={colors.camera}
                 size="medium"
+                icon="camera"
                 onDown={() => btn('CAMERA', 'down')}
                 onUp={() => btn('CAMERA', 'up')}
                 onPress={() => btn('CAMERA', 'click')}
               />,
             )}
 
-            {draggable(
-              'SHOCK',
-              <ControlButton
-                label="SHOCK"
-                color={colors.shockwave}
-                size="small"
-                onDown={() => btn('SHOCKWAVE', 'down')}
-                onUp={() => btn('SHOCKWAVE', 'up')}
-                onPress={() => btn('SHOCKWAVE', 'click')}
-              />,
-            )}
-
-            {draggable(
+            {/* MENU */}
+            {drag(
               'MENU',
               <ControlButton
                 label="MENU"
                 color={colors.mutedForeground}
                 size="small"
+                icon="menu"
                 onDown={() => btn('MENU', 'down')}
                 onUp={() => btn('MENU', 'up')}
                 onPress={() => btn('MENU', 'click')}
               />,
             )}
 
-            {draggable(
+            {/* HUD_EDIT — tap toggles edit mode from within the HUD */}
+            {drag(
+              'HUD_EDIT',
+              <ControlButton
+                label="HUD"
+                color="#06b6d4"
+                size="small"
+                icon="sliders"
+                onPress={() => hud.setEditMode((v) => !v)}
+              />,
+            )}
+
+            {/* NITRO — with per-car perfect window timing */}
+            {drag(
               'NITRO',
               <NitroButton
                 onNitro={handleNitro}
                 borderColor={colors.nitro}
                 backgroundColor={colors.background}
+                perfectWindowStart={carProfile.perfectWindowStart}
+                perfectWindowEnd={carProfile.perfectWindowEnd}
               />,
             )}
 
-            {draggable(
-              'DRIFT',
-              <ControlButton
-                label="DRIFT"
-                color={colors.drift}
-                size="medium"
-                continuous
-                onDown={() => btn('DRIFT', 'down')}
-                onUp={() => btn('DRIFT', 'up')}
-              />,
-            )}
-
-            {draggable(
+            {/* BRAKE */}
+            {drag(
               'BRAKE',
               <ControlButton
                 label="BRAKE"
                 color={colors.brake}
                 size="medium"
+                icon="arrow-down"
                 continuous
                 onDown={() => btn('BRAKE', 'down')}
                 onUp={() => btn('BRAKE', 'up')}
@@ -316,7 +303,6 @@ export default function ControlScreen() {
         )}
       </View>
 
-      {/* ── BOTTOM SAFE AREA ─────────────────────────────────────────── */}
       <View style={{ height: Math.max(insets.bottom, 4) }} />
     </View>
   );
@@ -351,36 +337,42 @@ const styles = StyleSheet.create({
   },
   liveDot: { width: 6, height: 6, borderRadius: 3 },
   liveText: { fontSize: 10, fontWeight: '800', letterSpacing: 1.5 },
-  topCenter: { flex: 1, alignItems: 'center' },
+
+  topCenter: { flex: 1, alignItems: 'center', gap: 2 },
   steerPct: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '900',
     fontVariant: ['tabular-nums'],
     letterSpacing: 1,
   },
+  carPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 1,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  carPillText: { fontSize: 8, fontWeight: '700', letterSpacing: 1 },
 
   diagRow: { paddingVertical: 6, alignItems: 'center' },
 
   body: {
     flex: 1,
-    position: 'relative', // establishes containing block for absolute buttons
+    position: 'relative',
   },
 
-  // ── Center content (steering + hint) — fills body, flex-centered ──
   centerFixed: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 12,
+    gap: 10,
   },
-  tiltHint: { alignItems: 'center', gap: 6 },
+  tiltHint: { alignItems: 'center', gap: 4 },
   tiltLabel: { fontSize: 9, letterSpacing: 2.5, fontWeight: '700' },
-  nitroLegend: { gap: 4, alignItems: 'flex-start', marginTop: 4 },
+  nitroLegend: { gap: 3, alignItems: 'flex-start', marginTop: 2 },
   legendRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   legendDot: { width: 6, height: 6, borderRadius: 3 },
-  legendText: { fontSize: 9, fontWeight: '600', letterSpacing: 0.5 },
+  legendText: { fontSize: 9, fontWeight: '600', letterSpacing: 0.3 },
 
-  // ── Edit mode overlay ─────────────────────────────────────────────
   editBanner: {
     position: 'absolute',
     top: 8,
@@ -389,7 +381,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 14,
+    gap: 12,
     zIndex: 50,
     pointerEvents: 'box-none',
   },
@@ -410,10 +402,5 @@ const styles = StyleSheet.create({
     borderColor: '#06b6d455',
     backgroundColor: '#06b6d410',
   },
-  resetText: {
-    color: '#06b6d4',
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 1.5,
-  },
+  resetText: { color: '#06b6d4', fontSize: 9, fontWeight: '800', letterSpacing: 1.5 },
 });

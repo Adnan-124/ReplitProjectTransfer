@@ -1,0 +1,135 @@
+I am building a mobile-to-PC controller for a racing game using my Android phone. I want to improve my nitro system and HUD controls to behave more like Asphalt 9.
+
+Problems:
+
+1. Nitro is not working properly (timing is inconsistent or not triggering correctly)
+2. Perfect Nitro timing is currently the same for all cars (this is incorrect)
+3. HUD has unnecessary buttons and no customization features
+
+---
+
+## What I want
+
+### Part 1: Fix Nitro System (Core Issue)
+
+Requirements:
+
+1. Fix Nitro Not Working:
+
+* Ensure nitro input is detected reliably from mobile
+* Debug and fix timing issues (tap not registering or delayed)
+* Handle latency between phone and PC
+
+2. Implement Proper Nitro Logic:
+
+* Yellow Nitro → single tap
+* Perfect Nitro → second tap within timing window
+* Remove Shockwave completely (do NOT implement it)
+
+3. Per-Car Timing System:
+
+* Each car must have a different Perfect Nitro timing window
+* Create a car configuration system:
+
+Example:
+cars = {
+"slow_car": { perfectWindow: 350 },
+"mid_car": { perfectWindow: 250 },
+"fast_car": { perfectWindow: 150 }
+}
+
+* Use currentCar to select timing dynamically
+
+4. Tap Detection:
+
+* Detect single tap vs double tap using timestamps
+* Example logic:
+  delta = currentTime - lastTapTime
+  if delta < perfectWindow → Perfect Nitro
+  else → Yellow Nitro
+
+5. Optional (Better Accuracy):
+
+* Support nitro bar simulation with a "blue zone"
+* Trigger Perfect Nitro only when timing falls in valid range
+
+6. Output:
+
+* Map nitro to keyboard input (e.g. press 'N')
+* Ensure responsiveness and no missed inputs
+
+7. Explain:
+
+* Why per-car timing improves realism
+* How timing windows affect gameplay feel
+
+---
+
+### Part 2: HUD Cleanup + Customization
+
+Requirements:
+
+1. Remove Buttons:
+
+* Remove Shockwave button
+* Remove Drift button
+
+2. Add Essential Buttons:
+
+* Nitro button
+* Menu button
+* HUD settings button
+
+3. Draggable HUD:
+
+* Buttons can be moved anywhere on screen
+* Use touch events (touchstart, touchmove, touchend)
+
+4. Resize Feature:
+
+* Allow resizing of buttons (pinch gesture or slider)
+* Store size in localStorage
+
+5. Save Layout:
+
+* Save position + size of each button
+* Restore on reload
+
+6. Edit Mode:
+
+* Toggle Edit Mode ON/OFF
+* ON → move & resize buttons
+* OFF → normal gameplay input
+
+7. Icons:
+
+* Add icons to buttons:
+
+  * Nitro → lightning icon
+  * Menu → menu icon (☰)
+  * HUD → settings icon (⚙)
+
+8. UI Constraints:
+
+* Prevent buttons from going off-screen
+* Smooth drag and resize behavior
+
+---
+
+## Code Requirements:
+
+* Provide clean HTML, CSS, JavaScript
+* Modular structure
+* Easy to extend
+
+---
+
+## Final Goal:
+
+Create a responsive, realistic controller with:
+
+* Accurate nitro timing (per car)
+* Stable input detection
+* Fully customizable HUD (drag + resize + icons)
+
+The system should feel close to a real mobile racing game, not a basic prototype.

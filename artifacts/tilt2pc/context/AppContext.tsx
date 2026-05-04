@@ -8,6 +8,66 @@ import React, {
   useState,
 } from 'react';
 
+// ─── Car profiles ──────────────────────────────────────────────────────────
+// Each car class has a different "blue zone" timing window for perfect nitro.
+// These approximate Asphalt 9 timing: faster cars have narrower windows.
+//
+//  perfectWindowStart — ms after first tap: blue zone opens (always ~320ms)
+//  perfectWindowEnd   — ms after first tap: blue zone closes
+//
+// Why per-car timing matters:
+//   Slow cars have longer nitro animations → more time for the blue zone.
+//   Hypercar nitro animations are very fast → blue zone lasts <100ms extra.
+//   Using the wrong timing means either always-perfect or never-perfect.
+
+export type CarId = 'c_class' | 'b_class' | 'a_class' | 's_class' | 'splus_class';
+
+export interface CarProfile {
+  id: CarId;
+  name: string;
+  description: string;
+  perfectWindowStart: number;
+  perfectWindowEnd: number;
+}
+
+export const CAR_PROFILES: CarProfile[] = [
+  {
+    id: 'c_class',
+    name: 'C / D Class',
+    description: 'Slow cars — wide window (easy to perfect)',
+    perfectWindowStart: 320,
+    perfectWindowEnd: 950,
+  },
+  {
+    id: 'b_class',
+    name: 'B Class',
+    description: 'Budget cars — comfortable window',
+    perfectWindowStart: 320,
+    perfectWindowEnd: 750,
+  },
+  {
+    id: 'a_class',
+    name: 'A Class',
+    description: 'Mid-tier — default for most cars',
+    perfectWindowStart: 320,
+    perfectWindowEnd: 600,
+  },
+  {
+    id: 's_class',
+    name: 'S Class',
+    description: 'Fast cars — narrow window',
+    perfectWindowStart: 320,
+    perfectWindowEnd: 480,
+  },
+  {
+    id: 'splus_class',
+    name: 'S+ Hypercar',
+    description: 'Top-tier — very tight window (~70ms)',
+    perfectWindowStart: 320,
+    perfectWindowEnd: 390,
+  },
+];
+
 export interface Settings {
   sensitivity: number;
   alpha: number;
@@ -15,6 +75,7 @@ export interface Settings {
   deadzone: number;
   invertSteering: boolean;
   sampleRate: number;
+  carId: CarId;
 }
 
 export interface Profile {
@@ -55,12 +116,13 @@ interface AppContextValue {
 }
 
 const DEFAULT_SETTINGS: Settings = {
-  sensitivity: 70,   // 0–100 scale matching Asphalt 9
-  alpha: 0.70,       // higher = more responsive (less smoothing lag)
+  sensitivity: 70,
+  alpha: 0.70,
   beta: 0.08,
-  deadzone: 5,       // 0–30 range (stored as %)
+  deadzone: 5,
   invertSteering: false,
   sampleRate: 60,
+  carId: 'a_class',
 };
 
 const KEYS = {
@@ -97,15 +159,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     (async () => {
       try {
-        const [storedIp, storedPort, storedNeutral, storedSettings, storedProfiles, storedActiveId] =
-          await Promise.all([
-            AsyncStorage.getItem(KEYS.lastIp),
-            AsyncStorage.getItem(KEYS.lastPort),
-            AsyncStorage.getItem(KEYS.neutralX),
-            AsyncStorage.getItem(KEYS.settings),
-            AsyncStorage.getItem(KEYS.profiles),
-            AsyncStorage.getItem(KEYS.activeProfile),
-          ]);
+        const [
+          storedIp, storedPort, storedNeutral,
+          storedSettings, storedProfiles, storedActiveId,
+        ] = await Promise.all([
+          AsyncStorage.getItem(KEYS.lastIp),
+          AsyncStorage.getItem(KEYS.lastPort),
+          AsyncStorage.getItem(KEYS.neutralX),
+          AsyncStorage.getItem(KEYS.settings),
+          AsyncStorage.getItem(KEYS.profiles),
+          AsyncStorage.getItem(KEYS.activeProfile),
+        ]);
         if (storedIp) setIpState(storedIp);
         if (storedPort) setPortState(storedPort);
         if (storedNeutral) setNeutralXState(parseFloat(storedNeutral));
