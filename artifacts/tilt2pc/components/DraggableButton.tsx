@@ -124,7 +124,7 @@ export function DraggableButton({
         },
         editMode && styles.editOutline,
       ]}
-      {...panResponder.panHandlers}
+      {...(editMode ? panResponder.panHandlers : {})}
     >
       {/* ── Resize + drag handle (shown above button in edit mode) ── */}
       {editMode && (

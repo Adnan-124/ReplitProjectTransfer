@@ -32,9 +32,9 @@ import {
   Animated,
   Easing,
   Platform,
-  Pressable,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
 
@@ -123,6 +123,7 @@ export function NitroButton({
 
   /**
    * Core tap handler — fires on finger-DOWN (onPressIn) for minimum latency.
+   * Also wired to onPress as a web fallback; the dedup guard prevents double-fire.
    *
    * Timeline example (A class, perfectWindow=300 ms):
    *   t=0    tap 1 → delta=∞  → Yellow
@@ -132,8 +133,15 @@ export function NitroButton({
    *   t=1200 tap 1 → delta=∞  → Yellow
    *   t=1900 tap 2 → delta=700 → Yellow  (≥ 300 ms, new cycle)
    */
-  const handlePressIn = () => {
-    const now     = Date.now();
+  const lastFiredRef = useRef<number>(0);
+
+  const fire = () => {
+    const now = Date.now();
+
+    // Dedup: if already fired within 80ms (onPressIn fired and onPress also fires), skip
+    if (now - lastFiredRef.current < 80) return;
+    lastFiredRef.current = now;
+
     const prevTap = lastTapRef.current;
     lastTapRef.current = now;
 
@@ -185,12 +193,13 @@ export function NitroButton({
         ]}
       />
 
-      {/* Main button — Pressable fires onPressIn (finger DOWN) for lowest latency */}
+      {/* Main button — onPressIn fires on finger-DOWN (instant); onPress is web fallback */}
       <Animated.View style={{ transform: [{ scale: btnScale }] }}>
-        <Pressable
-          onPressIn={handlePressIn}
-          android_disableSound
-          style={({ pressed }) => [
+        <TouchableOpacity
+          onPressIn={fire}
+          onPress={fire}
+          activeOpacity={0.82}
+          style={[
             styles.button,
             {
               backgroundColor: pal.bg,
@@ -200,13 +209,12 @@ export function NitroButton({
               shadowOpacity: visual === 'idle' ? 0.18 : 0.90,
               shadowRadius: visual === 'perfect' ? 22 : visual === 'orange' ? 18 : visual === 'yellow' ? 12 : 4,
               elevation: visual === 'idle' ? 2 : 10,
-              opacity: pressed ? 0.85 : 1,
             },
           ]}
         >
           <Text style={[styles.icon, { color: pal.border }]}>⚡</Text>
           <Text style={[styles.label, { color: pal.border }]}>{pal.label}</Text>
-        </Pressable>
+        </TouchableOpacity>
       </Animated.View>
 
       {/* Window size bar (visible in idle so user knows their timing) */}

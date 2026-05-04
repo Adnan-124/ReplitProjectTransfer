@@ -22,15 +22,16 @@ args = "Tilt2PC"
 
 [[workflows.workflow]]
 name = "Tilt2PC"
+mode = "parallel"
 author = "agent"
-
-[workflows.workflow.metadata]
-outputType = "webview"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "PORT=20116 pnpm --filter @workspace/tilt2pc run dev"
 waitForPort = 20116
+
+[workflows.workflow.metadata]
+outputType = "webview"
 
 [agent]
 stack = "PNPM_WORKSPACE"
