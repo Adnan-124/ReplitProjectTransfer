@@ -48,7 +48,6 @@ export default function SettingsScreen() {
   };
 
   const activeCarProfile = CAR_PROFILES.find((c) => c.id === settings.carId) ?? CAR_PROFILES[2];
-  const windowMs = activeCarProfile.perfectWindowEnd - activeCarProfile.perfectWindowStart;
 
   return (
     <ScrollView
@@ -68,7 +67,6 @@ export default function SettingsScreen() {
 
         {CAR_PROFILES.map((car) => {
           const active = settings.carId === car.id;
-          const w = car.perfectWindowEnd - car.perfectWindowStart;
           return (
             <TouchableOpacity
               key={car.id}
@@ -92,13 +90,13 @@ export default function SettingsScreen() {
                 </View>
               </View>
               <View style={styles.carCardRight}>
-                {/* Window bar: wider = easier */}
+                {/* Window bar: wider bar = easier (larger perfectWindow) */}
                 <View style={[styles.windowBarTrack, { backgroundColor: colors.border }]}>
                   <View
                     style={[
                       styles.windowBarFill,
                       {
-                        width: `${Math.round((w / 640) * 100)}%`,
+                        width: `${Math.round((car.perfectWindow / 500) * 100)}%`,
                         backgroundColor: active ? colors.primary : colors.primary + '55',
                       },
                     ]}
@@ -110,7 +108,7 @@ export default function SettingsScreen() {
                     { color: active ? colors.primary : colors.mutedForeground },
                   ]}
                 >
-                  {w}ms
+                  {car.perfectWindow}ms
                 </Text>
               </View>
             </TouchableOpacity>
@@ -122,9 +120,9 @@ export default function SettingsScreen() {
           <Feather name="zap" size={12} color={colors.primary} />
           <Text style={[styles.timingInfoText, { color: colors.foreground }]}>
             Active: <Text style={{ color: colors.primary, fontWeight: '700' }}>{activeCarProfile.name}</Text>
-            {'  ·  '}blue zone opens at{' '}
-            <Text style={{ fontWeight: '700' }}>{activeCarProfile.perfectWindowStart}ms</Text>,
-            {' '}lasts <Text style={{ color: colors.primary, fontWeight: '700' }}>{windowMs}ms</Text>
+            {'  ·  '}perfect window:{' '}
+            <Text style={{ color: colors.primary, fontWeight: '700' }}>{activeCarProfile.perfectWindow}ms</Text>
+            {'  ·  '}orange: &lt;120ms
           </Text>
         </View>
       </Section>

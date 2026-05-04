@@ -9,16 +9,24 @@ import React, {
 } from 'react';
 
 // ─── Car profiles ──────────────────────────────────────────────────────────
-// Each car class has a different "blue zone" timing window for perfect nitro.
-// These approximate Asphalt 9 timing: faster cars have narrower windows.
 //
-//  perfectWindowStart — ms after first tap: blue zone opens (always ~320ms)
-//  perfectWindowEnd   — ms after first tap: blue zone closes
+// perfectWindow (ms) — the delta between two taps that counts as "perfect nitro".
 //
-// Why per-car timing matters:
-//   Slow cars have longer nitro animations → more time for the blue zone.
-//   Hypercar nitro animations are very fast → blue zone lasts <100ms extra.
-//   Using the wrong timing means either always-perfect or never-perfect.
+//   delta < 120 ms           → Orange Nitro  (ultra-fast double tap)
+//   delta < perfectWindow    → Perfect Nitro (within car's blue zone)
+//   delta ≥ perfectWindow    → Yellow Nitro  (single tap / too slow)
+//
+// Why per-car timing improves realism:
+//   Slow cars have long nitro animations → more time for the blue zone → wide window.
+//   Hypercars animate very fast → the blue zone vanishes quickly → narrow window.
+//   A single global window either makes slow cars impossible or fast cars trivial.
+//   Matching each car class to its real in-game blue zone duration makes timing
+//   feel earned and accurate at every level.
+//
+// How timing windows affect gameplay feel:
+//   Wide window  (≥400 ms) — forgiving; great for beginners or slow cars.
+//   Medium window (250-350 ms) — requires deliberate second tap; skill-based.
+//   Narrow window (≤180 ms) — demands muscle memory; hypercar mastery.
 
 export type CarId = 'c_class' | 'b_class' | 'a_class' | 's_class' | 'splus_class';
 
@@ -26,8 +34,8 @@ export interface CarProfile {
   id: CarId;
   name: string;
   description: string;
-  perfectWindowStart: number;
-  perfectWindowEnd: number;
+  /** ms — second tap within this window triggers Perfect Nitro */
+  perfectWindow: number;
 }
 
 export const CAR_PROFILES: CarProfile[] = [
@@ -35,36 +43,31 @@ export const CAR_PROFILES: CarProfile[] = [
     id: 'c_class',
     name: 'C / D Class',
     description: 'Slow cars — wide window (easy to perfect)',
-    perfectWindowStart: 320,
-    perfectWindowEnd: 950,
+    perfectWindow: 500,
   },
   {
     id: 'b_class',
     name: 'B Class',
     description: 'Budget cars — comfortable window',
-    perfectWindowStart: 320,
-    perfectWindowEnd: 750,
+    perfectWindow: 380,
   },
   {
     id: 'a_class',
     name: 'A Class',
     description: 'Mid-tier — default for most cars',
-    perfectWindowStart: 320,
-    perfectWindowEnd: 600,
+    perfectWindow: 300,
   },
   {
     id: 's_class',
     name: 'S Class',
     description: 'Fast cars — narrow window',
-    perfectWindowStart: 320,
-    perfectWindowEnd: 480,
+    perfectWindow: 220,
   },
   {
     id: 'splus_class',
     name: 'S+ Hypercar',
-    description: 'Top-tier — very tight window (~70ms)',
-    perfectWindowStart: 320,
-    perfectWindowEnd: 390,
+    description: 'Top-tier — very tight window (~150 ms)',
+    perfectWindow: 150,
   },
 ];
 

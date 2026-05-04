@@ -14,10 +14,8 @@ Key Mappings (Asphalt 9 defaults):
     Steer Left  → Left Arrow
     Steer Right → Right Arrow
     Nitro       → Space
-    Drift       → Left Shift
     Brake       → Down Arrow
     Camera      → C
-    Shockwave   → Left Shift  (mapped via SHOCKWAVE button on app)
     Menu        → Escape
 
 Edit the KEY_MAP dict below to change any mapping.
@@ -25,25 +23,46 @@ Edit the KEY_MAP dict below to change any mapping.
 ──────────────────────────────────────────────────────────────────
 NITRO SYSTEM (Asphalt 9 mechanics)
 ──────────────────────────────────────────────────────────────────
-The app sends  { "type": "nitro", "nitroType": "yellow"|"perfect" }
 
-  yellow  → tap Space once (standard nitro burst)
-            Phone detects: first tap on NITRO button
+The app sends  { "type": "nitro", "nitroType": "yellow"|"perfect"|"orange" }
 
-  perfect → double-tap Space with precise inner timing
-            PC simulates: press Space → 350ms gap → release/re-press
-            This puts the second press inside A9's "blue zone" window
-            Phone detects: second tap during 320–750ms after first tap
+Nitro type is determined ENTIRELY on the phone using tap-delta timing:
 
-  Keyboard mapping:
-    yellow  → Space × 1 press (hold 80 ms)
-    perfect → Space press → 350 ms wait → quick re-press → hold 3.5 s
+  delta = time between current tap and previous tap
 
-  Debugging latency:
-    • Run: python tilt2pc_server.py --verbose   (adds per-message timing)
+  delta < 120 ms       → orange  (ultra-fast double tap, no gap)
+  delta < perfectWindow → perfect (second tap within blue zone window)
+  else                  → yellow  (single tap / too slow)
+
+  perfectWindow is per-car (set in Settings → Car Class):
+    C/D class  → 500 ms  (easy)
+    B class    → 380 ms
+    A class    → 300 ms  (default)
+    S class    → 220 ms
+    S+ Hypercar → 150 ms (very tight)
+
+PC keyboard behaviour:
+
+  yellow  → single Space tap (80 ms hold)
+            The game fires standard yellow nitro.
+
+  perfect → Space tap → PERFECT_GAP pause → second Space tap
+            The PERFECT_GAP places the second press inside A9's blue zone.
+            Tune PERFECT_GAP if timing is off (see tips below).
+
+  orange  → two very fast Space taps (40 ms each, 40 ms apart)
+            Simulates the "no gap" double tap that triggers orange boost.
+
+Debugging latency:
+    • Run: python tilt2pc_server.py   (prints every nitro event)
     • Check "round-trip" in heartbeat pong response
     • Target: < 50 ms phone→PC latency on same Wi-Fi network
     • If > 80 ms: disable power-saving on Wi-Fi adapter, use 5 GHz band
+
+Tuning tips:
+    • Increase PERFECT_GAP if 'perfect' fires too early in-game
+    • Decrease PERFECT_GAP if 'perfect' fires too late in-game
+    • ORANGE_HOLD + ORANGE_GAP should total < 120 ms to feel snappy
 ──────────────────────────────────────────────────────────────────
 """
 
@@ -72,20 +91,24 @@ PIN = ""                 # Set e.g. "1234" to require PIN (empty = no auth)
 STEER_DEADZONE = 0.12    # ± this value = no steering key pressed
 
 KEY_MAP = {
-    "NITRO":      Key.space,
-    "DRIFT":      Key.shift_l,
-    "BRAKE":      Key.down,
-    "CAMERA":     "c",
-    "SHOCKWAVE":  Key.shift_l,   # Shockwave button (left pad on phone)
-    "MENU":       Key.esc,
-    "EXTRA1":     "q",
-    "EXTRA2":     "e",
+    "NITRO":  Key.space,
+    "DRIFT":  Key.shift_l,
+    "BRAKE":  Key.down,
+    "CAMERA": "c",
+    "MENU":   Key.esc,
+    "EXTRA1": "q",
+    "EXTRA2": "e",
 }
 
-# Nitro timing constants (seconds) — tune to match your Asphalt 9 version
-YELLOW_HOLD       = 0.08    # How long to hold Space for yellow nitro tap
-PERFECT_GAP       = 0.35    # Delay between yellow press and perfect re-press
-PERFECT_HOLD      = 3.50    # How long to hold Space after perfect re-press
+# ── Nitro timing constants (seconds) — tune to match your A9 version ──────────
+YELLOW_HOLD   = 0.08    # How long to hold Space for yellow nitro tap
+PERFECT_GAP   = 0.35    # Delay between yellow press and perfect re-press
+                        # ↑ Increase if perfect fires too early in-game
+                        # ↓ Decrease if perfect fires too late in-game
+PERFECT_HOLD  = 3.50    # How long to hold Space after perfect re-press
+
+ORANGE_HOLD   = 0.04    # Hold duration for each tap in orange double-tap
+ORANGE_GAP    = 0.04    # Gap between the two orange taps
 
 # ─── State ────────────────────────────────────────────────────────────────────
 
@@ -107,15 +130,6 @@ def _release(key):
     if key in pressed_keys:
         keyboard.release(key)
         pressed_keys.discard(key)
-
-
-def _tap(key, hold: float = 0.05):
-    """Synchronous single tap (non-blocking usage — wrap in asyncio.sleep)."""
-    keyboard.press(key)
-    pressed_keys.add(key)
-    time.sleep(hold)
-    keyboard.release(key)
-    pressed_keys.discard(key)
 
 
 def _release_all():
@@ -144,9 +158,9 @@ def handle_steer(value: float):
 # ─── Button handler ───────────────────────────────────────────────────────────
 
 async def handle_button(data: dict):
-    btn_id  = data.get("id", "")
-    action  = data.get("action", "")
-    key     = KEY_MAP.get(btn_id)
+    btn_id = data.get("id", "")
+    action = data.get("action", "")
+    key    = KEY_MAP.get(btn_id)
     if key is None:
         return
 
@@ -159,7 +173,6 @@ async def handle_button(data: dict):
         await asyncio.sleep(0.05)
         _release(key)
     elif action == "double":
-        # Double-tap on generic button (rapid two presses)
         for _ in range(2):
             _press(key)
             await asyncio.sleep(0.04)
@@ -171,16 +184,12 @@ async def handle_button(data: dict):
 
 # ─── Nitro handler ────────────────────────────────────────────────────────────
 #
-#  Nitro type  │ What the phone detected        │ What we do on PC
-#  ────────────┼────────────────────────────────┼───────────────────────────────
-#  yellow      │ First tap on NITRO button       │ Single Space tap
-#  perfect     │ Second tap in 320-750ms window  │ Space → 350ms gap → re-press
+#  Nitro type  │ Phone detected                    │ PC action
+#  ────────────┼────────────────────────────────────┼──────────────────────────────
+#  yellow      │ Single tap (delta ≥ perfectWindow) │ Single Space tap (80 ms)
+#  perfect     │ Second tap in timing window        │ Space → PERFECT_GAP → re-press
+#  orange      │ Ultra-fast second tap (< 120 ms)   │ Two rapid Space taps (no gap)
 #
-#  Asphalt 9 "perfect nitro" blue zone timing:
-#    After the first Space press, A9 shows a brief blue flash at ~350-500 ms.
-#    Pressing Space again during that flash triggers perfect nitro.
-#    PERFECT_GAP constant above controls this timing — increase if your game
-#    version's blue zone appears later, decrease if it appears earlier.
 
 async def _run_nitro(nitro_type: str):
     nitro_key = KEY_MAP["NITRO"]
@@ -188,39 +197,51 @@ async def _run_nitro(nitro_type: str):
     try:
         if nitro_type == "yellow":
             # ── Yellow: single Space tap ────────────────────────────────
-            # The game auto-activates yellow nitro on tap.
             _press(nitro_key)
             await asyncio.sleep(YELLOW_HOLD)
             _release(nitro_key)
-            print(f"  [NITRO] Yellow fired")
+            print(f"  [NITRO] Yellow  — single tap ({YELLOW_HOLD*1000:.0f} ms hold)")
 
         elif nitro_type == "perfect":
-            # ── Perfect: Space → gap → re-press in blue zone ────────────
-            # 1. First press starts yellow nitro
+            # ── Perfect: first tap → gap → second tap in blue zone ──────
+            # Step 1: Start yellow nitro
             _press(nitro_key)
             await asyncio.sleep(YELLOW_HOLD)
             _release(nitro_key)
 
-            # 2. Wait for A9's blue zone to appear (~350ms into yellow)
+            # Step 2: Wait for A9's blue zone to appear (~350 ms after first tap)
             await asyncio.sleep(PERFECT_GAP)
 
-            # 3. Re-press Space in the blue zone → perfect nitro activates
+            # Step 3: Re-press in the blue zone → perfect nitro activates
             _press(nitro_key)
             await asyncio.sleep(PERFECT_HOLD)
             _release(nitro_key)
-            print(f"  [NITRO] Perfect fired (gap={PERFECT_GAP}s)")
+            print(f"  [NITRO] Perfect — gap={PERFECT_GAP*1000:.0f} ms, hold={PERFECT_HOLD:.1f}s")
+
+        elif nitro_type == "orange":
+            # ── Orange: two rapid taps with virtually no gap ─────────────
+            # Simulates the phone's ultra-fast double tap (<120 ms)
+            _press(nitro_key)
+            await asyncio.sleep(ORANGE_HOLD)
+            _release(nitro_key)
+
+            await asyncio.sleep(ORANGE_GAP)
+
+            _press(nitro_key)
+            await asyncio.sleep(ORANGE_HOLD)
+            _release(nitro_key)
+            print(f"  [NITRO] Orange  — double tap ({(ORANGE_HOLD+ORANGE_GAP)*1000:.0f} ms total)")
 
         else:
             print(f"  [NITRO] Unknown type: {nitro_type!r}")
 
     except asyncio.CancelledError:
-        # Clean up if a new nitro fires while this one is running
         _release(nitro_key)
         raise
 
 
 async def handle_nitro(data: dict):
-    """Entry point for { type: 'nitro', nitroType: '...' } messages."""
+    """Entry point for { type: 'nitro', nitroType: 'yellow'|'perfect'|'orange' } messages."""
     global nitro_task
 
     nitro_type = data.get("nitroType", "yellow")
@@ -287,12 +308,12 @@ async def handler(websocket):
                 handle_steer(float(data.get("value", 0)))
                 continue
 
-            # ── Generic buttons (drift, brake, camera, shock, menu) ───
+            # ── Generic buttons (brake, camera, menu) ─────────────────
             if msg_type == "button":
                 await handle_button(data)
                 continue
 
-            # ── Nitro (yellow / perfect) ──────────────────────────────
+            # ── Nitro (yellow / perfect / orange) ─────────────────────
             if msg_type == "nitro":
                 await handle_nitro(data)
                 continue
@@ -322,27 +343,35 @@ def get_local_ip():
 
 async def main():
     local_ip = get_local_ip()
-    print("=" * 54)
+    print("=" * 58)
     print("  Tilt2PC Windows Companion Server")
-    print("=" * 54)
+    print("=" * 58)
     print(f"  Local IP  :  {local_ip}")
     print(f"  Port      :  {PORT}")
     print(f"  PIN       :  {'(none)' if not PIN else '****'}")
     print()
-    print("  Nitro system:")
-    print(f"    Yellow  → Space tap  ({YELLOW_HOLD*1000:.0f} ms hold)")
-    print(f"    Perfect → Space, {PERFECT_GAP*1000:.0f}ms gap, re-press ({PERFECT_HOLD:.1f}s hold)")
+    print("  Nitro system  (all timing done on phone):")
+    print(f"    Yellow  → single Space tap  ({YELLOW_HOLD*1000:.0f} ms hold)")
+    print(f"    Perfect → Space, {PERFECT_GAP*1000:.0f} ms gap, re-press ({PERFECT_HOLD:.1f}s hold)")
+    print(f"    Orange  → two rapid taps ({(ORANGE_HOLD+ORANGE_GAP)*1000:.0f} ms total)")
+    print()
+    print("  Per-car perfect windows (set in app Settings):")
+    print("    C/D class   → 500 ms  (easy)")
+    print("    B class     → 380 ms")
+    print("    A class     → 300 ms  (default)")
+    print("    S class     → 220 ms")
+    print("    S+ Hypercar → 150 ms  (very tight)")
     print()
     print(f"  Enter this IP in the Tilt2PC app → {local_ip}")
     print()
     print("  Waiting for phone... (Ctrl+C to stop)")
-    print("-" * 54)
+    print("-" * 58)
     print()
     print("  Tuning tips:")
-    print("    • Increase PERFECT_GAP if 'perfect' fires too early")
-    print("    • Decrease PERFECT_GAP if 'perfect' fires too late")
+    print("    • Increase PERFECT_GAP if 'perfect' fires too early in-game")
+    print("    • Decrease PERFECT_GAP if 'perfect' fires too late in-game")
     print("    • On same Wi-Fi network, latency should be < 30 ms")
-    print("-" * 54)
+    print("-" * 58)
 
     async with websockets.serve(handler, "0.0.0.0", PORT):
         await asyncio.Future()

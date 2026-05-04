@@ -141,7 +141,7 @@ export default function ControlScreen() {
           {/* Active car class pill */}
           <View style={[styles.carPill, { borderColor: colors.primary + '44' }]}>
             <Text style={[styles.carPillText, { color: colors.primary }]}>
-              {carProfile.name}
+              {carProfile.name} · {carProfile.perfectWindow}ms
             </Text>
           </View>
         </View>
@@ -206,16 +206,21 @@ export default function ControlScreen() {
               TILT TO STEER
             </Text>
           </View>
+          {/* Nitro legend */}
           <View style={styles.nitroLegend}>
             <View style={styles.legendRow}>
               <View style={[styles.legendDot, { backgroundColor: '#f59e0b' }]} />
-              <Text style={[styles.legendText, { color: colors.mutedForeground }]}>tap = yellow</Text>
+              <Text style={[styles.legendText, { color: colors.mutedForeground }]}>single tap = yellow</Text>
             </View>
             <View style={styles.legendRow}>
-              <View style={[styles.legendDot, { backgroundColor: '#3b82f6' }]} />
+              <View style={[styles.legendDot, { backgroundColor: '#06b6d4' }]} />
               <Text style={[styles.legendText, { color: colors.mutedForeground }]}>
-                in window = perfect ({carProfile.perfectWindowEnd - carProfile.perfectWindowStart}ms)
+                &lt;{carProfile.perfectWindow}ms = perfect
               </Text>
+            </View>
+            <View style={styles.legendRow}>
+              <View style={[styles.legendDot, { backgroundColor: '#f97316' }]} />
+              <Text style={[styles.legendText, { color: colors.mutedForeground }]}>&lt;120ms = orange</Text>
             </View>
           </View>
         </View>
@@ -274,15 +279,14 @@ export default function ControlScreen() {
               />,
             )}
 
-            {/* NITRO — with per-car perfect window timing */}
+            {/* NITRO — tap-delta system with per-car perfect window */}
             {drag(
               'NITRO',
               <NitroButton
                 onNitro={handleNitro}
                 borderColor={colors.nitro}
                 backgroundColor={colors.background}
-                perfectWindowStart={carProfile.perfectWindowStart}
-                perfectWindowEnd={carProfile.perfectWindowEnd}
+                perfectWindow={carProfile.perfectWindow}
               />,
             )}
 
