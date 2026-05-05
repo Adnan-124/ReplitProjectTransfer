@@ -1,18 +1,20 @@
 /**
- * NitroButton — tap-delta nitro + long-press shockwave.
+ * NitroButton
  *
- * WEB behaviour (Replit preview / sandboxed iframe):
- *   - Pressable.onPress  == React onClick, the ONLY reliably-delivered event
- *     in a sandboxed iframe (TouchableOpacity home buttons use the same path).
- *   - Tap classification is based on the time between consecutive onPress calls.
- *   - Shockwave is detected via a document-level mousedown capture listener that
- *     starts a 600ms timer; onPress cancels it if the user releases quickly.
- *   - "use no memo" opts the component out of the React Compiler so state
- *     updates from event callbacks always trigger a re-render.
+ * WEB (Replit / sandboxed iframe):
+ *   Pressable.onPress == React onClick — the same proven path used by every
+ *   other button in the app (TouchableOpacity home-screen buttons).
+ *   onPressIn / onPressOut / onLongPress all go through the Responder system
+ *   which is silently broken in sandboxed iframes — they are NOT used on web.
+ *   A document-level mousedown capture listener runs in parallel to show the
+ *   charging state and fire shockwave on long hold.
  *
- * NATIVE behaviour (iOS / Android):
- *   - Pressable.onPressIn / onPressOut for precise press-start timing.
- *   - 600ms shockwave timer started in onPressIn.
+ * NATIVE (iOS / Android):
+ *   Pressable.onPressIn + onPressOut for precise timing.
+ *   600 ms hold fires shockwave via setTimeout.
+ *
+ * 'use no memo' — disables the React Compiler for this component so that
+ * state updates inside event callbacks always trigger a re-render.
  */
 
 import * as Haptics from 'expo-haptics';
@@ -29,16 +31,16 @@ import {
 
 export type NitroType = 'yellow' | 'perfect' | 'orange' | 'shockwave';
 
-const ORANGE_THRESHOLD  = 120;
-const SHOCKWAVE_HOLD_MS = 600;
-const DISPLAY_MS        = 900;
-const NITRO_NATIVE_ID   = 'tilt2pc-nitro-btn';
+const ORANGE_THRESHOLD  = 120;   // ms
+const SHOCKWAVE_HOLD_MS = 600;   // ms
+const DISPLAY_MS        = 900;   // ms
+const NITRO_ID          = 'tilt2pc-nitro-btn'; // nativeID → HTML id on web
 
 type Visual = 'idle' | 'charging' | NitroType;
 
 const PALETTE: Record<Visual, { border: string; bg: string; label: string; hint: string }> = {
   idle:      { border: '#fbbf24', bg: '#120d00', label: 'NITRO',         hint: 'tap · hold 0.6s=⚡⚡' },
-  charging:  { border: '#a855f7', bg: '#0d0020', label: 'HOLD…',         hint: 'release=shockwave' },
+  charging:  { border: '#a855f7', bg: '#0d0020', label: 'HOLD…',         hint: 'release = shockwave' },
   yellow:    { border: '#f59e0b', bg: '#1f1400', label: 'YELLOW ⚡',      hint: 'yellow nitro!' },
   perfect:   { border: '#06b6d4', bg: '#001822', label: 'PERFECT!',      hint: '✦ perfect nitro ✦' },
   orange:    { border: '#f97316', bg: '#1a0800', label: 'ORANGE 🔥',     hint: 'orange nitro!' },
@@ -57,17 +59,15 @@ export function NitroButton({ onNitro, perfectWindow = 300 }: NitroButtonProps) 
 
   const [visual, setVisual] = useState<Visual>('idle');
 
-  const perfectWindowRef  = useRef(perfectWindow);
-  const onNitroRef        = useRef(onNitro);
+  const perfectWindowRef = useRef(perfectWindow);
+  const onNitroRef       = useRef(onNitro);
   useEffect(() => { perfectWindowRef.current = perfectWindow; }, [perfectWindow]);
   useEffect(() => { onNitroRef.current = onNitro; }, [onNitro]);
 
-  // Timing state
-  const lastTapRef     = useRef<number>(0);   // time of last tap (pressIn on native / onPress on web)
-  const pressStartRef  = useRef<number>(0);   // pressIn time (native only)
+  const lastTapRef     = useRef<number>(0);
+  const pressStartRef  = useRef<number>(0);
   const shockwaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const displayTimer   = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Prevents double-firing when both Pressable AND document listener fire
   const isPressedRef   = useRef(false);
 
   const btnScale    = useRef(new Animated.Value(1)).current;
@@ -100,7 +100,7 @@ export function NitroButton({ onNitro, perfectWindow = 300 }: NitroButtonProps) 
   }, [btnScale, ringScale, ringOpacity]);
 
   const classify = useCallback((tapTime: number): NitroType => {
-    const prev  = lastTapRef.current;
+    const prev = lastTapRef.current;
     lastTapRef.current = tapTime;
     const delta = prev === 0 ? Infinity : tapTime - prev;
     if (delta < ORANGE_THRESHOLD)          return 'orange';
@@ -122,7 +122,7 @@ export function NitroButton({ onNitro, perfectWindow = 300 }: NitroButtonProps) 
     lastTapRef.current = 0;
   }, [showFeedback]);
 
-  // ─── NATIVE: Pressable onPressIn / onPressOut ────────────────────────────
+  // ── NATIVE: onPressIn / onPressOut ──────────────────────────────────────────
   const handleNativePressIn = useCallback(() => {
     const now = Date.now();
     pressStartRef.current = now;
@@ -142,16 +142,15 @@ export function NitroButton({ onNitro, perfectWindow = 300 }: NitroButtonProps) 
     }
   }, [fireTap]);
 
-  // ─── WEB: onPress (= React onClick, proven to work in sandboxed iframes) ──
-  // This fires AFTER the user releases. Classification is based on the time
-  // between consecutive onPress calls (release-to-release delta), which is
-  // close enough to press-start-to-press-start for game timing purposes.
+  // ── WEB: onPress (= React onClick, always works) ────────────────────────────
+  // Fires after each click release. Delta between consecutive calls is used for
+  // orange / perfect / yellow classification (equivalent to press-start delta
+  // for normal game tapping speeds).
   const handleWebPress = useCallback(() => {
     const now = Date.now();
-    console.log('[NitroButton] onPress fired at', now);
+    console.log('[NitroButton] onPress fired', now);
 
-    // If a shockwave timer is still running (started by document mousedown),
-    // cancel it — this was a short tap, not a shockwave hold.
+    // Cancel any pending shockwave (started by the document mousedown listener)
     if (shockwaveTimer.current) {
       clearTimeout(shockwaveTimer.current);
       shockwaveTimer.current = null;
@@ -162,26 +161,22 @@ export function NitroButton({ onNitro, perfectWindow = 300 }: NitroButtonProps) 
     fireTap(now);
   }, [fireTap]);
 
-  // ─── WEB: document-level mousedown capture ────────────────────────────────
-  // Starts the charging visual + shockwave timer. onPress (above) handles the
-  // tap classification on release. If mousedown never fires (very restricted
-  // sandbox), onPress still classifies correctly — just without the charging UI.
+  // ── WEB: document-level mousedown capture (charging + shockwave) ────────────
+  // Attaches at the document capture phase — fires before React's Responder
+  // system and before react-native-gesture-handler can intercept it.
+  // This provides the "charging" visual and shockwave on long hold.
+  // If mousedown is blocked (very restricted sandbox), onPress above still
+  // correctly classifies all taps without charging feedback.
   useEffect(() => {
     if (Platform.OS !== 'web') return;
 
     const onDown = (e: MouseEvent) => {
-      // Identify the button by id (nativeID maps to HTML id in RNW)
-      const el = document.getElementById(NITRO_NATIVE_ID);
-      if (!el) {
-        console.warn('[NitroButton] element not found by id:', NITRO_NATIVE_ID);
-        return;
-      }
-      if (!el.contains(e.target as Node)) return;
-
+      const el = document.getElementById(NITRO_ID);
+      if (!el || !el.contains(e.target as Node)) return;
       if (isPressedRef.current) return;
       isPressedRef.current = true;
 
-      console.log('[NitroButton] mousedown captured (charging)');
+      console.log('[NitroButton] mousedown captured');
       setVisual('charging');
 
       if (shockwaveTimer.current) clearTimeout(shockwaveTimer.current);
@@ -193,14 +188,10 @@ export function NitroButton({ onNitro, perfectWindow = 300 }: NitroButtonProps) 
       }, SHOCKWAVE_HOLD_MS);
     };
 
-    // mouseup resets isPressedRef so onPress can re-use the flag if needed
-    const onUp = () => {
-      isPressedRef.current = false;
-    };
+    const onUp = () => { isPressedRef.current = false; };
 
     document.addEventListener('mousedown', onDown, { capture: true });
     document.addEventListener('mouseup',   onUp,   { capture: true });
-
     return () => {
       document.removeEventListener('mousedown', onDown, true);
       document.removeEventListener('mouseup',   onUp,   true);
@@ -222,25 +213,24 @@ export function NitroButton({ onNitro, perfectWindow = 300 }: NitroButtonProps) 
 
   return (
     <View style={styles.wrapper}>
-      {/* Ring burst — transparent to pointer events */}
       <Animated.View
         style={[
           styles.ring,
           {
             pointerEvents: 'none',
-            borderColor: pal.border,
-            opacity: ringOpacity,
-            transform: [{ scale: ringScale }],
+            borderColor:   pal.border,
+            opacity:       ringOpacity,
+            transform:     [{ scale: ringScale }],
           },
         ]}
       />
 
       <Animated.View style={{ transform: [{ scale: btnScale }] }}>
         <Pressable
-          nativeID={NITRO_NATIVE_ID}
-          onPressIn={Platform.OS !== 'web' ? handleNativePressIn : undefined}
+          nativeID={NITRO_ID}
+          onPressIn={Platform.OS !== 'web' ? handleNativePressIn  : undefined}
           onPressOut={Platform.OS !== 'web' ? handleNativePressOut : undefined}
-          onPress={Platform.OS === 'web' ? handleWebPress : undefined}
+          onPress={Platform.OS === 'web'    ? handleWebPress       : undefined}
           style={[
             styles.button,
             {
@@ -259,7 +249,6 @@ export function NitroButton({ onNitro, perfectWindow = 300 }: NitroButtonProps) 
         </Pressable>
       </Animated.View>
 
-      {/* Timing bar */}
       <View style={styles.barTrack}>
         <View style={[
           styles.barFill,
