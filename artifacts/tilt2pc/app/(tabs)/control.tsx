@@ -202,7 +202,7 @@ export default function ControlScreen() {
         }}
       >
         {/* Fixed center: SteeringBar. pointerEvents=none so tilt works everywhere */}
-        <View style={styles.centerFixed} pointerEvents="none">
+        <View style={[styles.centerFixed, { pointerEvents: 'none' }]}>
           <SteeringBar value={steerValue} />
           <View style={styles.tiltHint}>
             <Feather name="navigation" size={18} color={colors.primary + '55'} />
@@ -235,7 +235,7 @@ export default function ControlScreen() {
 
         {/* Edit mode banner */}
         {hud.editMode && (
-          <View style={styles.editBanner} pointerEvents="box-none">
+          <View style={[styles.editBanner, { pointerEvents: 'box-none' }]}>
             <Text style={styles.editBannerText}>DRAG · RESIZE WITH [-][+]</Text>
             <TouchableOpacity style={styles.resetBtn} onPress={hud.resetLayout}>
               <Feather name="refresh-cw" size={10} color="#06b6d4" />

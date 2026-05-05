@@ -128,7 +128,7 @@ export function DraggableButton({
     >
       {/* ── Resize + drag handle (shown above button in edit mode) ── */}
       {editMode && (
-        <View style={styles.handle} pointerEvents="box-none">
+        <View style={[styles.handle, { pointerEvents: 'box-none' }]}>
           <TouchableOpacity
             style={styles.scaleBtn}
             onPress={onDecreaseScale}
@@ -154,8 +154,7 @@ export function DraggableButton({
 
       {/* ── Button content (scaled) ── */}
       <View
-        style={{ width: btnW, height: btnH, transform: [{ scale }] }}
-        pointerEvents={editMode ? 'none' : 'auto'}
+        style={{ width: btnW, height: btnH, transform: [{ scale }], pointerEvents: editMode ? 'none' : 'auto' }}
       >
         {children}
       </View>
