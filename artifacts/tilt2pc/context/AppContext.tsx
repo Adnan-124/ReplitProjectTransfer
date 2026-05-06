@@ -100,6 +100,7 @@ interface AppContextValue {
   ping: number;
   connect: () => void;
   disconnect: () => void;
+  ws: WebSocket | null;
   sendMessage: (msg: object) => boolean;
   neutralX: number;
   calibrate: (x: number) => void;
@@ -349,7 +350,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     <AppContext.Provider
       value={{
         ip, port, pin, setIp, setPort, setPin,
-        connectionStatus, ping, connect, disconnect, sendMessage,
+        connectionStatus, ping, connect, disconnect, ws: wsRef.current, sendMessage,
         neutralX, calibrate,
         settings, updateSettings,
         profiles, activeProfileId, saveCurrentProfile, loadProfile, deleteProfile,

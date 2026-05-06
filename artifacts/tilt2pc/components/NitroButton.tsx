@@ -1,75 +1,151 @@
 import * as Haptics from 'expo-haptics';
 import React, { useRef, useState } from 'react';
-import { Animated, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-
-export type NitroType = 'yellow' | 'perfect' | 'orange' | 'shockwave';
+import {
+  Animated,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
 interface NitroButtonProps {
-  onNitro: (type: NitroType) => void;
-  borderColor?: string;
-  backgroundColor?: string;
-  perfectWindow?: number;
+  ws: WebSocket | null;
 }
 
-export function NitroButton({ onNitro }: NitroButtonProps) {
+export function NitroButton({ ws }: NitroButtonProps) {
   const [active, setActive] = useState(false);
+
   const scale = useRef(new Animated.Value(1)).current;
 
-  const fire = () => {
-    onNitro('yellow');
-    setActive(true);
+  const fireNitro = () => {
+    try {
+      // SEND TO PC
+      if (ws && ws.readyState === 1) {
+        ws.send(
+          JSON.stringify({
+            type: 'button',
+            id: 'NITRO',
+            action: 'click',
+          })
+        );
 
-    if (Platform.OS !== 'web') {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+        console.log('Nitro sent');
+      } else {
+        console.log('WebSocket not connected');
+      }
+
+      // HAPTIC
+      Haptics.impactAsync(
+        Haptics.ImpactFeedbackStyle.Medium
+      ).catch(() => {});
+
+      // BUTTON ANIMATION
+      setActive(true);
+
+      Animated.sequence([
+        Animated.timing(scale, {
+          toValue: 0.9,
+          duration: 60,
+          useNativeDriver: true,
+        }),
+
+        Animated.spring(scale, {
+          toValue: 1,
+          useNativeDriver: true,
+          speed: 80,
+          bounciness: 6,
+        }),
+      ]).start();
+
+      setTimeout(() => {
+        setActive(false);
+      }, 250);
+
+    } catch (err) {
+      console.log('Nitro error:', err);
     }
-
-    Animated.sequence([
-      Animated.timing(scale, { toValue: 0.88, duration: 60, useNativeDriver: true }),
-      Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 80, bounciness: 6 }),
-    ]).start();
-
-    setTimeout(() => setActive(false), 300);
   };
 
   return (
     <View style={styles.wrapper}>
-      <Animated.View style={{ transform: [{ scale }] }}>
+      <Animated.View
+        style={{
+          transform: [{ scale }],
+        }}
+      >
         <Pressable
-          onPress={fire}
+          onPress={fireNitro}
           style={[
             styles.button,
             active && styles.buttonActive,
           ]}
         >
-          <Text style={[styles.icon, active && styles.iconActive]}>⚡</Text>
-          <Text style={[styles.label, active && styles.labelActive]}>NITRO</Text>
+          <Text
+            style={[
+              styles.icon,
+              active && styles.iconActive,
+            ]}
+          >
+            ⚡
+          </Text>
+
+          <Text
+            style={[
+              styles.label,
+              active && styles.labelActive,
+            ]}
+          >
+            NITRO
+          </Text>
         </Pressable>
       </Animated.View>
-      <Text style={styles.hint}>tap</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrapper: { alignItems: 'center', gap: 4 },
+  wrapper: {
+    alignItems: 'center',
+  },
+
   button: {
     width: 100,
     height: 100,
+
     borderRadius: 20,
+
     borderWidth: 2,
     borderColor: '#fbbf24',
+
     backgroundColor: '#120d00',
-    alignItems: 'center',
+
     justifyContent: 'center',
-    gap: 2,
+    alignItems: 'center',
   },
+
   buttonActive: {
     borderColor: '#f59e0b',
     backgroundColor: '#1f1400',
   },
-  icon: { fontSize: 22, color: '#fbbf24' },
-  iconActive: { color: '#f59e0b' },
-  label: { fontSize: 10, fontWeight: 'bold', color: '#fbbf24', letterSpacing: 1.5 },
-  labelActive: { color: '#f59e0b' },
-  hint: { fontSize: 10, color: '#fbbf2466', marginTop: 2 },
+
+  icon: {
+    fontSize: 28,
+    color: '#fbbf24',
+  },
+
+  iconActive: {
+    color: '#f59e0b',
+  },
+
+  label: {
+    marginTop: 4,
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#fbbf24',
+    letterSpacing: 1,
+  },
+
+  labelActive: {
+    color: '#f59e0b',
+  },
 });

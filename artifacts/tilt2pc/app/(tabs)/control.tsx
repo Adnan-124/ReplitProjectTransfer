@@ -14,9 +14,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ControlButton } from '@/components/ControlButton';
 import { DiagnosticsOverlay } from '@/components/DiagnosticsOverlay';
 import { DraggableButton } from '@/components/DraggableButton';
-import { NitroButton, type NitroType } from '@/components/NitroButton';
+import { NitroButton } from '@/components/NitroButton';
 import { SteeringBar } from '@/components/SteeringBar';
-import { CAR_PROFILES, useApp } from '@/context/AppContext';
+import { useApp } from '@/context/AppContext';
 import { useColors } from '@/hooks/useColors';
 import { BUTTON_BOX, type HUDButtonId, useHUDLayout } from '@/hooks/useHUDLayout';
 import { useTilt } from '@/hooks/useTilt';
@@ -27,7 +27,7 @@ export default function ControlScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
-  const { sendMessage, setLastEvent, connectionStatus, steerValue, settings } = useApp();
+  const { ws, sendMessage, setLastEvent, connectionStatus, steerValue } = useApp();
   const [showDiag, setShowDiag] = useState(false);
 
   const [bodyW, setBodyW] = useState(0);
@@ -66,16 +66,6 @@ export default function ControlScreen() {
     [sendMessage, setLastEvent],
   );
 
-  const handleNitro = useCallback(
-    (nitroType: NitroType) => {
-      sendMessage({ type: 'nitro', ts: Date.now(), nitroType });
-      setLastEvent(`NITRO:${nitroType}`);
-    },
-    [sendMessage, setLastEvent],
-  );
-
-  // Get per-car timing from active car profile
-  const carProfile = CAR_PROFILES.find((c) => c.id === settings.carId) ?? CAR_PROFILES[2];
 
   const connected = connectionStatus === 'connected';
   const steerPct = Math.abs(steerValue * 100).toFixed(0);
@@ -287,15 +277,10 @@ export default function ControlScreen() {
               />,
             )}
 
-            {/* NITRO — tap-delta system with per-car perfect window */}
+            {/* NITRO */}
             {drag(
               'NITRO',
-              <NitroButton
-                onNitro={handleNitro}
-                borderColor={colors.nitro}
-                backgroundColor={colors.background}
-                perfectWindow={carProfile.perfectWindow}
-              />,
+              <NitroButton ws={ws} />,
             )}
 
             {/* BRAKE */}
