@@ -1,12 +1,6 @@
-import * as Haptics from 'expo-haptics';
-import React, { useRef, useState } from 'react';
-import {
-  Animated,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import * as Haptics from "expo-haptics";
+import React, { useRef, useState } from "react";
+import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 
 interface NitroButtonProps {
   ws: WebSocket | null;
@@ -23,21 +17,19 @@ export function NitroButton({ ws }: NitroButtonProps) {
       if (ws && ws.readyState === 1) {
         ws.send(
           JSON.stringify({
-            type: 'button',
-            id: 'NITRO',
-            action: 'click',
-          })
+            type: "button",
+            id: "NITRO",
+            action: "click",
+          }),
         );
 
-        console.log('Nitro sent');
+        console.log("Nitro sent");
       } else {
-        console.log('WebSocket not connected');
+        console.log("WebSocket not connected");
       }
 
       // HAPTIC
-      Haptics.impactAsync(
-        Haptics.ImpactFeedbackStyle.Medium
-      ).catch(() => {});
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
 
       // BUTTON ANIMATION
       setActive(true);
@@ -60,9 +52,8 @@ export function NitroButton({ ws }: NitroButtonProps) {
       setTimeout(() => {
         setActive(false);
       }, 250);
-
     } catch (err) {
-      console.log('Nitro error:', err);
+      console.log("Nitro error:", err);
     }
   };
 
@@ -75,26 +66,11 @@ export function NitroButton({ ws }: NitroButtonProps) {
       >
         <Pressable
           onPress={fireNitro}
-          style={[
-            styles.button,
-            active && styles.buttonActive,
-          ]}
+          style={[styles.button, active && styles.buttonActive]}
         >
-          <Text
-            style={[
-              styles.icon,
-              active && styles.iconActive,
-            ]}
-          >
-            ⚡
-          </Text>
+          <Text style={[styles.icon, active && styles.iconActive]}>⚡</Text>
 
-          <Text
-            style={[
-              styles.label,
-              active && styles.labelActive,
-            ]}
-          >
+          <Text style={[styles.label, active && styles.labelActive]}>
             NITRO
           </Text>
         </Pressable>
@@ -105,7 +81,7 @@ export function NitroButton({ ws }: NitroButtonProps) {
 
 const styles = StyleSheet.create({
   wrapper: {
-    alignItems: 'center',
+    alignItems: "center",
   },
 
   button: {
@@ -115,37 +91,37 @@ const styles = StyleSheet.create({
     borderRadius: 20,
 
     borderWidth: 2,
-    borderColor: '#fbbf24',
+    borderColor: "#fbbf24",
 
-    backgroundColor: '#120d00',
+    backgroundColor: "#120d00",
 
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
 
   buttonActive: {
-    borderColor: '#f59e0b',
-    backgroundColor: '#1f1400',
+    borderColor: "#f59e0b",
+    backgroundColor: "#1f1400",
   },
 
   icon: {
     fontSize: 28,
-    color: '#fbbf24',
+    color: "#fbbf24",
   },
 
   iconActive: {
-    color: '#f59e0b',
+    color: "#f59e0b",
   },
 
   label: {
     marginTop: 4,
     fontSize: 12,
-    fontWeight: 'bold',
-    color: '#fbbf24',
+    fontWeight: "bold",
+    color: "#fbbf24",
     letterSpacing: 1,
   },
 
   labelActive: {
-    color: '#f59e0b',
+    color: "#f59e0b",
   },
 });
