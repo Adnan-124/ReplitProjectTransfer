@@ -151,19 +151,19 @@ async def handle_button(data):
     # SIMPLE TAP
     if action == "click":
         _press(key)
-        await asyncio.sleep(0.12)
+        await asyncio.sleep(0.03)
         _release(key)
 
     # DOUBLE TAP (shockwave)
     elif action == "double":
         _press(key)
-        await asyncio.sleep(0.08)
+        await asyncio.sleep(0.03)
         _release(key)
 
-        await asyncio.sleep(0.08)
+        await asyncio.sleep(0.03)
 
         _press(key)
-        await asyncio.sleep(0.08)
+        await asyncio.sleep(0.03)
         _release(key)
 
     # HOLD NITRO
