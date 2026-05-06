@@ -150,9 +150,17 @@ async def handle_button(data):
 
     # SIMPLE TAP
     if action == "click":
-        _press(key)
-        await asyncio.sleep(0.03)
-        _release(key)
+
+    # Faster drift tap
+        if btn_id == "DRIFT":
+            _press(key)
+            await asyncio.sleep(0.015)
+            _release(key)
+
+        else:
+            _press(key)
+            await asyncio.sleep(0.03)
+            _release(key)
 
     # DOUBLE TAP (shockwave)
     elif action == "double":
