@@ -113,22 +113,28 @@ def _release_all():
             pass
     pressed_keys.clear()
 
+# added for smoothing steering input (not implemented yet)
+smoothed_steer = 0
 
 def handle_steer(value):
-    print(f"[STEER] {value}")
+    global smoothed_steer
 
-    if value < -STEER_DEADZONE:
+    # Apply smoothing
+    smoothed_steer = smoothed_steer * 0.8 + value * 0.2
+
+    print(f"[STEER] raw={value:.3f} smooth={smoothed_steer:.3f}")
+
+    if smoothed_steer < -STEER_DEADZONE:
         _release(Key.right)
         _press(Key.left)
 
-    elif value > STEER_DEADZONE:
+    elif smoothed_steer > STEER_DEADZONE:
         _release(Key.left)
         _press(Key.right)
 
     else:
         _release(Key.left)
         _release(Key.right)
-
 
 async def handle_button(data):
     btn_id = data.get("id", "")
