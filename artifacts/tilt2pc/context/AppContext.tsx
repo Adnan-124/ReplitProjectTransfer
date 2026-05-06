@@ -158,6 +158,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pingMapRef = useRef<Map<number, number>>(new Map());
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const connectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shouldReconnectRef = useRef(false);
 
   useEffect(() => {
@@ -233,8 +234,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }, 2000);
   }, [sendMessage, stopHeartbeat]);
 
+  const clearConnectTimeout = useCallback(() => {
+    if (connectTimeoutRef.current) {
+      clearTimeout(connectTimeoutRef.current);
+      connectTimeoutRef.current = null;
+    }
+  }, []);
+
   const disconnect = useCallback(() => {
     shouldReconnectRef.current = false;
+    clearConnectTimeout();
     if (reconnectTimerRef.current) {
       clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = null;
@@ -245,13 +254,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       wsRef.current = null;
     }
     setConnectionStatus('disconnected');
-  }, [stopHeartbeat]);
+  }, [stopHeartbeat, clearConnectTimeout]);
 
   const connect = useCallback(() => {
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
     }
+    clearConnectTimeout();
     setConnectionStatus('connecting');
     shouldReconnectRef.current = true;
 
@@ -259,7 +269,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const ws = new WebSocket(`ws://${ip}:${port}`);
       wsRef.current = ws;
 
+      connectTimeoutRef.current = setTimeout(() => {
+        if (ws.readyState !== WebSocket.OPEN) {
+          ws.close();
+          setConnectionStatus('error');
+          if (shouldReconnectRef.current) {
+            reconnectTimerRef.current = setTimeout(() => {
+              if (shouldReconnectRef.current) connect();
+            }, 3000);
+          }
+        }
+      }, 8000);
+
       ws.onopen = () => {
+        clearConnectTimeout();
         setConnectionStatus('connected');
         ws.send(JSON.stringify({ type: 'config', client: 'tilt2pc-android', ver: '1.0', pin }));
         startHeartbeat();
@@ -279,9 +302,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         } catch {}
       };
 
-      ws.onerror = () => setConnectionStatus('error');
+      ws.onerror = () => {
+        clearConnectTimeout();
+        setConnectionStatus('error');
+      };
 
       ws.onclose = () => {
+        clearConnectTimeout();
         stopHeartbeat();
         if (shouldReconnectRef.current) {
           setConnectionStatus('error');
@@ -293,16 +320,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       };
     } catch {
+      clearConnectTimeout();
       setConnectionStatus('error');
     }
-  }, [ip, port, pin, startHeartbeat, stopHeartbeat]);
+  }, [ip, port, pin, startHeartbeat, stopHeartbeat, clearConnectTimeout]);
 
   useEffect(() => {
     return () => {
       shouldReconnectRef.current = false;
+      if (connectTimeoutRef.current) clearTimeout(connectTimeoutRef.current);
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       stopHeartbeat();
       wsRef.current?.close();
-      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
     };
   }, [stopHeartbeat]);
 
