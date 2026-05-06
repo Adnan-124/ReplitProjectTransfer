@@ -132,12 +132,6 @@ export default function ControlScreen() {
           <Text style={[styles.steerPct, { color: steerColor }]}>
             {steerDir}{'  '}{steerPct}%
           </Text>
-          {/* Active car class pill */}
-          <View style={[styles.carPill, { borderColor: colors.primary + '44' }]}>
-            <Text style={[styles.carPillText, { color: colors.primary }]}>
-              {carProfile.name} · {carProfile.perfectWindow}ms
-            </Text>
-          </View>
         </View>
 
         {/* HUD edit mode toggle */}
@@ -205,12 +199,6 @@ export default function ControlScreen() {
             <View style={styles.legendRow}>
               <View style={[styles.legendDot, { backgroundColor: '#f59e0b' }]} />
               <Text style={[styles.legendText, { color: colors.mutedForeground }]}>tap = yellow</Text>
-            </View>
-            <View style={styles.legendRow}>
-              <View style={[styles.legendDot, { backgroundColor: '#06b6d4' }]} />
-              <Text style={[styles.legendText, { color: colors.mutedForeground }]}>
-                2nd tap &lt;{carProfile.perfectWindow}ms = perfect
-              </Text>
             </View>
             <View style={styles.legendRow}>
               <View style={[styles.legendDot, { backgroundColor: '#f97316' }]} />
